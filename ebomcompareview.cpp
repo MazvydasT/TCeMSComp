@@ -3,82 +3,74 @@
 
 EbomCompareView::EbomCompareView(QWidget *parent) :
     QWidget(parent),
-    ui(new Ui::EbomCompareView),
-    regExpTreeNodeEntry("\\d+\\s+(?:ASM|SUB|PRT)\\s+\"(.*)\"$"),
-    regExpNodeItemId("\\s+ATTR.*Key=\"Item\\sID\"\\s+Value=\"(.*)\"$"),
-    regExpNodeItemRevision("\\s+ATTR.*Key=\"TcEng\\sItem\\sRevision\"\\s+Value=\"(\\d*)\"$"),
-    regExpNodeParentId("\\s+ATTR.*Key=\"Item\\sParent\"\\s+Value=\"(.*)/.*\"$"),
-    regExpNodeItemAJTDisplayName("\\s+ATTR.*Key=\"Item\\sDisplay\\sName\"\\s+Value=\"(.*)\"$"),
-    regExpProjectId("\\d+")
+    ui(new Ui::EbomCompareView)
 {
     ui->setupUi(this);
 
-    ui->treeViewTCe->setModel(0);
-    ui->treeVieweMS->setModel(0);
+    QPalette palette;
+    palette.setColor(QPalette::Base, Qt::red);
 
-    ui->treeViewTCe->sortByColumn(0, Qt::AscendingOrder);
-    ui->treeVieweMS->sortByColumn(0, Qt::AscendingOrder);
+    ui->lineEditProjectId->setPalette(palette);
 
-    connect(this, SIGNAL(setTCeProgressBarValue(int)), ui->progressBarTCe, SLOT(setValue(int)));
-    connect(this, SIGNAL(seteMSProgressBarValue(int)), ui->progressBareMS, SLOT(setValue(int)));
+    ui->treeViewTeamcenter->sortByColumn(0, Qt::AscendingOrder);
+    ui->treeVieweProcessDesigner->sortByColumn(0, Qt::AscendingOrder);
 
-    connect(ui->treeViewTCe->header(), &QHeaderView::sortIndicatorChanged,[this](){
-        ui->treeVieweMS->sortByColumn(0, ui->treeViewTCe->header()->sortIndicatorOrder());
+    connect(ui->treeViewTeamcenter->header(), &QHeaderView::sortIndicatorChanged,[this](){
+        ui->treeVieweProcessDesigner->sortByColumn(0, ui->treeViewTeamcenter->header()->sortIndicatorOrder());
     });
 
-    connect(ui->treeVieweMS->header(), &QHeaderView::sortIndicatorChanged,[this](){
-        ui->treeViewTCe->sortByColumn(0, ui->treeVieweMS->header()->sortIndicatorOrder());
+    connect(ui->treeVieweProcessDesigner->header(), &QHeaderView::sortIndicatorChanged,[this](){
+        ui->treeViewTeamcenter->sortByColumn(0, ui->treeVieweProcessDesigner->header()->sortIndicatorOrder());
     });
 
-    connect( ui->treeViewTCe->verticalScrollBar(), SIGNAL(valueChanged(int)), ui->treeVieweMS->verticalScrollBar(), SLOT(setValue(int)));
-    connect( ui->treeVieweMS->verticalScrollBar(), SIGNAL(valueChanged(int)), ui->treeViewTCe->verticalScrollBar(), SLOT(setValue(int)));
+    connect( ui->treeViewTeamcenter->verticalScrollBar(), SIGNAL(valueChanged(int)), ui->treeVieweProcessDesigner->verticalScrollBar(), SLOT(setValue(int)));
+    connect( ui->treeVieweProcessDesigner->verticalScrollBar(), SIGNAL(valueChanged(int)), ui->treeViewTeamcenter->verticalScrollBar(), SLOT(setValue(int)));
+
+    modelTeamcenter = new QStandardItemModel();
+    modelProcessDesigner = new QStandardItemModel();
+
+    QStringList headerLabels;
+    headerLabels << "Item Name";
+
+    modelTeamcenter->setHorizontalHeaderLabels(headerLabels);
+    modelProcessDesigner->setHorizontalHeaderLabels(headerLabels);
+
+    ui->treeViewTeamcenter->setModel(modelTeamcenter);
+    ui->treeVieweProcessDesigner->setModel(modelProcessDesigner);
+
+    connect(modelTeamcenter, SIGNAL(itemChanged(QStandardItem*)), this, SLOT(onItemChanged(QStandardItem*)));
 }
 
 EbomCompareView::~EbomCompareView()
 {
-    emsTimeStamp = 0;
-    tceTimeStamp = 0;
+    processDesignerTimeStamp = 0;
+    teamcenterTimeStamp = 0;
 
-    tcemsMutex.lock();
-    if(ui->treeViewTCe->model() != 0) delete ui->treeViewTCe->model();
-    if(ui->treeViewTCe->model() != 0) delete ui->treeVieweMS->model();
-
-    ui->treeViewTCe->setModel(0);
-    ui->treeVieweMS->setModel(0);
-    tcemsMutex.unlock();
+    qDeleteAll(mQueueFutureWatcherTeamcenter);
+    qDeleteAll(mQueueFutureWatcherProcessDesigner);
 
     delete ui;
 }
 
-QHash<QString, QString> EbomCompareView::exportPairs()
+void EbomCompareView::exportPairs(QStandardItem *item, QHash<QString, QString> *outputHash)
 {
-    QHash<QString, QString> pairsToReturn;
+    if(item != 0) {
+        Node *node = (item != modelTeamcenter->invisibleRootItem() && item != modelProcessDesigner->invisibleRootItem()) ? (Node *)item : 0;
 
-    std::function<void(Node *node, QHash<QString, QString> *outputHash)> getPairs = [&](Node *node, QHash<QString, QString> *outputHash){
-        if(node->checkState() == Qt::Checked)
-        {
-            if(node->matchingNode() != 0)
-            {
-                outputHash->insert(node->matchingNode()->externalId(), node->matchingNode()->caption());
+        if(node != 0 && node->checkState() == Qt::Checked) {
+            Node *matchingNode = node->matchingNode();
+
+            if(matchingNode != 0) {
+                outputHash->insert(matchingNode->externalId(), matchingNode->caption());
             }
         }
 
-        else
-        {
-            QHash<QString, Node*> children = node->children();
-
-            foreach (Node *childNode, children) {
-                getPairs(childNode, outputHash);
+        else {
+            for(int index = 0; index < item->rowCount(); index++) {
+                exportPairs(item->child(index), outputHash);
             }
         }
-    };
-
-    if(ui->treeViewTCe->model() != 0)
-    {
-        getPairs(((TreeModel*)ui->treeViewTCe->model())->rootNode(), &pairsToReturn);
     }
-
-    return pairsToReturn;
 }
 
 QHash<QString, QString> EbomCompareView::exportParams()
@@ -92,661 +84,747 @@ QHash<QString, QString> EbomCompareView::exportParams()
     exportParams["CheckIn"] = ui->comboBoxCheckIn->currentText() == "No" ? "n" : "y";
     exportParams["AsNew"] = ui->comboBoxAsNew->currentText() == "No" ? "n" : "y";
 
-    settings.setValue(((TreeModel*)ui->treeViewTCe->model())->rootNode()->id(), ui->lineEditProjectId->text());
+    settings.setValue(((Node *)modelTeamcenter->invisibleRootItem()->child(0))->id(), ui->lineEditProjectId->text());
 
     return exportParams;
 }
 
 void EbomCompareView::on_pushButtonTce_clicked()
 {
-    if(parentTabWidget == 0) parentTabWidget = (QTabWidget*)parent()->parent();
-
-    QString pathToTCeExtract = QFileDialog::getOpenFileName(this, "Load extract from TCe", "", "Digital Buck VET EBOM (*Digital_Buck_VET_EBOM.ajt)");
-
-    if(pathToTCeExtract.isNull() || pathToTCeExtract.isEmpty()) return;
-
-    emit setTCeProgressBarValue(0);
-
-    parentTabWidget->setTabText(parentTabWidget->indexOf(this), "Tab");
-
-    tcemsMutex.lock();
-
-    if(ui->treeVieweMS->model() != 0)
-    {
-        clearDummyNodes(((TreeModel*)ui->treeVieweMS->model())->rootNode());
-    }
-
-    delete ui->treeViewTCe->model();
-    ui->treeViewTCe->setModel(0);
-
-    TreeModel *emsModel = ((TreeModel*)ui->treeVieweMS->model());
-    if(emsModel != 0) emsModel->rootNode()->setMatchingNode(0);
-
-    tcemsMutex.unlock();
-
-    mNodeTreesOK = false;
-    emit checkStatus();
-
-    tceTimeStamp = QDateTime::currentDateTime().toMSecsSinceEpoch();
-
-    QFutureWatcher<Node*> *tceFutureWatcher = new QFutureWatcher<Node*>();
-    tceFutureWatcher->connect(tceFutureWatcher, &QFutureWatcher<Node*>::finished,[this, tceFutureWatcher](){
-        Node *tceEbomRootNode = tceFutureWatcher->result();
-
-        if(tceEbomRootNode != 0)
-        {
-            TreeModel *tceModel = new TreeModel();
-
-            QStringList header;
-            header.append("Item Name");
-
-            tceModel->setHorizontalHeaderLabels(header);
-
-            tceModel->setRootNode(tceEbomRootNode);
-
-
-            tcemsMutex.lock();
-
-            TreeModel *emsModel = (TreeModel*)ui->treeVieweMS->model();
-
-            ui->treeViewTCe->setModel(tceModel);
-
-            if(emsModel != 0)
-            {
-                tceEbomRootNode->setMatchingNode(emsModel->rootNode());
-
-                equaliseNodeChildrenCount(tceEbomRootNode);
-
-                equaliseNodeExpansion(emsModel->rootNode(), ui->treeVieweMS, ui->treeViewTCe);
-
-                Qt::SortOrder order = ui->treeVieweMS->header()->sortIndicatorOrder();
-                ui->treeViewTCe->model()->sort(0, order);
-                ui->treeVieweMS->model()->sort(0, order);
-
-                mNodeTreesOK = true;
-                emit checkStatus();
-            }
-
-            tcemsMutex.unlock();
-
-
-            parentTabWidget->setTabText(parentTabWidget->indexOf(this), tceEbomRootNode->id());
-
-            QVariant storedProjectId = settings.value(tceEbomRootNode->id());
-
-            if(storedProjectId.isValid() && ui->lineEditProjectId->text().isEmpty())
-            {
-                ui->lineEditProjectId->setText(storedProjectId.value<QString>());
-            }
-        }
-
-        delete tceFutureWatcher;
-    });
-
-    tceFutureWatcher->setFuture(QtConcurrent::run([this, pathToTCeExtract]() -> Node* {
-        qint64 timeStamp = tceTimeStamp;
-
-        if(timeStamp != tceTimeStamp) return 0;
-
-        QFile tceExtractFile(pathToTCeExtract);
-
-        qint64 lastFilePos = 0;
-        int lastTCeProgressBarValue = 0;
-
-        int maxTCeProgressBarValue = ui->progressBarTCe->maximum();
-
-        Node *tceEbomRootNode = 0;
-
-        if(tceExtractFile.open(QFile::ReadOnly|QFile::Text))
-        {
-            qint64 tceExtractFileSize = tceExtractFile.size();
-
-            QTextStream tceExtractTextStream(&tceExtractFile);
-
-            QHash<QString, Node*> nodeList;
-
-            QString id, parentId, itemDisplayName, partAsySubName;
-            int revision = -1;
-
-            while (!tceExtractTextStream.atEnd() && timeStamp == tceTimeStamp) {
-                qint64 filePos = tceExtractFile.pos();
-
-                if(lastFilePos < filePos)
-                {
-                    lastFilePos = filePos;
-
-                    int newTCeProgressBarValue = (lastFilePos * maxTCeProgressBarValue) / tceExtractFileSize;
-
-                    if(lastTCeProgressBarValue < newTCeProgressBarValue)
-                    {
-                        lastTCeProgressBarValue = newTCeProgressBarValue;
-
-                        emit setTCeProgressBarValue(lastTCeProgressBarValue);
-                    }
-                }
-
-                QString line = tceExtractTextStream.readLine();
-
-                if(regExpTreeNodeEntry.exactMatch(line))
-                {
-                    if(!id.isEmpty() && !parentId.isEmpty() && !itemDisplayName.isEmpty() && !partAsySubName.isEmpty() && revision > -1)
-                    {
-                        QString name = partAsySubName.mid(itemDisplayName.length() + 1);
-
-                        Node *node = new Node(NodeType::TCeNode, id, name, revision);
-
-                        if(name.startsWith("EBOM", Qt::CaseInsensitive) && tceEbomRootNode == 0) tceEbomRootNode = node;
-
-                        Node *foundParent = nodeList.value(parentId);
-
-                        if(foundParent != 0)
-                        {
-                            foundParent->addChild(node);
-                        }
-
-                        nodeList.insert(id, node);
-                    }
-
-                    id = QString();
-                    itemDisplayName = QString();
-                    revision = -1;
-
-                    partAsySubName = regExpTreeNodeEntry.cap(1);
-
-                    continue;
-                }
-
-                if(regExpNodeItemId.exactMatch(line))
-                {
-                    id = regExpNodeItemId.cap(1);
-
-                    continue;
-                }
-
-                if(regExpNodeItemRevision.exactMatch(line))
-                {
-                    revision = regExpNodeItemRevision.cap(1).toInt();
-
-                    continue;
-                }
-
-                if(regExpNodeParentId.exactMatch(line))
-                {
-                    parentId = regExpNodeParentId.cap(1);
-
-                    continue;
-                }
-
-                if(regExpNodeItemAJTDisplayName.exactMatch(line))
-                {
-                    itemDisplayName = regExpNodeItemAJTDisplayName.cap(1);
-                }
-            }
-
-            if(!id.isEmpty() && !parentId.isEmpty() && !itemDisplayName.isEmpty() && !partAsySubName.isEmpty() && revision > -1)
-            {
-                QString name = partAsySubName.mid(itemDisplayName.length() + 1);
-
-                Node *node = new Node(NodeType::TCeNode, id, name, revision);
-                node->setCheckable(true);
-
-                if(name.startsWith("EBOM", Qt::CaseInsensitive) && tceEbomRootNode == 0) tceEbomRootNode = node;
-
-                Node *foundParent = nodeList.value(parentId);
-
-                if(foundParent != 0)
-                {
-                    foundParent->addChild(node);
-                    nodeList.insert(id, node);
-                }
-            }
-
-            //#####################################
-
-            if(timeStamp != tceTimeStamp || nodeList.isEmpty()) return 0;
-        }
-
-        return tceEbomRootNode;
-    }));
+    buildEBOMTree(&EbomCompareView::buildEBOMTreeFromTeamcenterExtract,
+                  QFileDialog::getOpenFileName(this, "Load extract from TCe", "", "TCe Extract (*.txt);;All files (*)"),
+                  modelTeamcenter,
+                  &mQueueFutureWatcherTeamcenter,
+                  &teamcenterTimeStamp,
+                  ui->progressBarTeamcenter);
 }
 
 void EbomCompareView::on_pushButton_clicked()
 {
-    QString pathToeMSExtract = QFileDialog::getOpenFileName(this, "Load extract from eMS", "", "Excel 97-2003 Workbook (*.xls)");
+    buildEBOMTree(&EbomCompareView::buildEBOMTreeFromProcessDesignerExtract,
+                  QFileDialog::getOpenFileName(this, "Load extract from eMS", "", "Excel 97-2003 Workbook (*.xls);;All files (*)"),
+                  modelProcessDesigner,
+                  &mQueueFutureWatcherProcessDesigner,
+                  &processDesignerTimeStamp,
+                  ui->progressBarProcessDesigner);
+}
 
-    if(pathToeMSExtract.isNull() || pathToeMSExtract.isEmpty()) return;
+void EbomCompareView::monitorQueue(QQueue<QFutureWatcher<QList<QStandardItem *>> *> *mQueueFutureWatcher, QStandardItemModel *model)
+{
+    int mQueueFutureWatcherCount = mQueueFutureWatcher->count();
 
-    emit seteMSProgressBarValue(0);
+    QtConcurrent::run([this, mQueueFutureWatcher, mQueueFutureWatcherCount, model](){
+        int queueCount = mQueueFutureWatcherCount;
 
-    tcemsMutex.lock();
+        while(queueCount > 0) {
 
-    if(ui->treeViewTCe->model() != 0)
-    {
-        clearDummyNodes(((TreeModel*)ui->treeViewTCe->model())->rootNode());
+            QFutureWatcher<QList<QStandardItem *>> *futureWatcher = 0;
+
+            QMetaObject::invokeMethod(this, "dequeueFutureWatcher", Qt::BlockingQueuedConnection,
+                                      Q_RETURN_ARG(QFutureWatcher<QList<QStandardItem *>> *, futureWatcher),
+                                      Q_ARG(QQueue<QFutureWatcher<QList<QStandardItem *>> *> *, mQueueFutureWatcher));
+
+            QMetaObject::invokeMethod(this, "countQueuedFutures", Qt::BlockingQueuedConnection,
+                                      Q_RETURN_ARG(int, queueCount),
+                                      Q_ARG(QQueue<QFutureWatcher<QList<QStandardItem *>> *> *, mQueueFutureWatcher));
+
+            if(futureWatcher != 0)
+            {
+                futureWatcher->waitForFinished();
+
+                auto nodes = futureWatcher->result();
+
+                if(queueCount > 0) {
+                    qDeleteAll(nodes);
+                }
+
+                else if(!nodes.isEmpty()) {
+                    QMetaObject::invokeMethod(this, "modelReplaceChildren", Qt::BlockingQueuedConnection, Q_ARG(QList<QStandardItem *>, nodes), Q_ARG(QStandardItemModel *, model));
+                }
+
+                delete futureWatcher;
+            }
+        }
+    });
+}
+
+void EbomCompareView::buildEBOMTree(QList<QStandardItem *> (EbomCompareView::*fn)(QString, qint64 *, QProgressBar *), QString pathToExtract, QStandardItemModel *model, QQueue<QFutureWatcher<QList<QStandardItem *>> *> *queueFutureWatcher, qint64 *timeStamp, QProgressBar *progressBar)
+{
+    if(pathToExtract.isEmpty()) {return;}
+
+    mUpdateStats = false;
+    model->removeRows(0, model->rowCount());
+    mUpdateStats = true;
+    setNumOfLeafNodesInTeamcenter();
+    onItemChanged(0);
+
+    auto futureWatcherTeamcenter = new QFutureWatcher<QList<QStandardItem *>>();
+
+    queueFutureWatcher->append(futureWatcherTeamcenter);
+
+    if(queueFutureWatcher->count() == 1) {monitorQueue(queueFutureWatcher, model);}
+
+    *timeStamp = QDateTime::currentDateTime().toMSecsSinceEpoch();
+
+    futureWatcherTeamcenter->setFuture(QtConcurrent::run(this, fn, pathToExtract, timeStamp, progressBar));
+}
+
+void EbomCompareView::compareChildren(QStandardItem *item1, QStandardItem *item2)
+{
+    Node *node1 = 0, *node2 = 0,
+            *teamcenterNode = 0, *processDesignerNode = 0;
+
+    if(item1 != modelTeamcenter->invisibleRootItem() && item1 != modelProcessDesigner->invisibleRootItem() &&
+            item2 != modelTeamcenter->invisibleRootItem() && item2 != modelProcessDesigner->invisibleRootItem()) {
+        node1 = (Node *)item1;
+        node2 = (Node *)item2;
+
+        if(node1->model() == modelTeamcenter) {
+            teamcenterNode = node1;
+            processDesignerNode = node2;
+        }
+
+        else {
+            teamcenterNode = node2;
+            processDesignerNode = node1;
+        }
+
+        if(node1->id() == node2->id()) {
+            node1->setMatchingNode(node2);
+            node2->setMatchingNode(node1);
+
+            if(ui->treeViewTeamcenter->isExpanded(teamcenterNode->index())) {
+                onTreeViewExpandedCollapsed(teamcenterNode->index());
+            }
+
+            else if(ui->treeVieweProcessDesigner->isExpanded(processDesignerNode->index())){
+                onTreeViewExpandedCollapsed(processDesignerNode->index());
+            }
+
+            if(node1->nodeType() != NodeType::DummyType && node2->nodeType() != NodeType::DummyType) {
+                if(node1->nameRegExp().exactMatch(node2->name()) && node2->nameRegExp().exactMatch(node1->name())) {
+                    if(node1->revision() == node2->revision()) {
+                        node1->setNodeStatus(NodeStatus::OK);
+                        node2->setNodeStatus(NodeStatus::OK);
+                    }
+
+                    else {
+                        node1->setNodeStatus(NodeStatus::WrongRevisionInEms);
+                        node2->setNodeStatus(NodeStatus::WrongRevisionInEms);
+
+                        teamcenterNode->setCheckState(Qt::Checked);
+                    }
+                }
+
+                else {
+                    node1->setNodeStatus(NodeStatus::WrongNameInEms);
+                    node2->setNodeStatus(NodeStatus::WrongNameInEms);
+                }
+            }
+        }
+
+        else {
+            //node1->setNodeStatus(node1->nodeDefaultStatus());
+            //node2->setNodeStatus(node2->nodeDefaultStatus());
+
+            return;
+        }
     }
 
-    delete ui->treeVieweMS->model();
-    ui->treeVieweMS->setModel(0);
+    bool hasChildrenToImport = false, parentNeedsToBeImported = false;
 
-    TreeModel* tceModel = ((TreeModel*)ui->treeViewTCe->model());
-    if(tceModel != 0) tceModel->rootNode()->setMatchingNode(0);
+    if(node1 != 0) {node1->setNumOfChildLeafNodes(0);}
 
-    tcemsMutex.unlock();
+    for(int rowNumberItem1 = 0; rowNumberItem1 < item1->rowCount(); rowNumberItem1++) {
+        Node *childNode1 = (Node *)item1->child(rowNumberItem1);
 
-    mNodeTreesOK = false;
-    emit checkStatus();
+        for(int rowNumberItem2 = 0; rowNumberItem2 < item2->rowCount(); rowNumberItem2++) {
+            Node *childNode2 = (Node *)item2->child(rowNumberItem2);
 
-    emsTimeStamp = QDateTime::currentDateTime().toMSecsSinceEpoch();
-
-    QFutureWatcher<Node*> *emsFutureWatcher = new QFutureWatcher<Node*>();
-    emsFutureWatcher->connect(emsFutureWatcher, &QFutureWatcher<Node*>::finished,[this, emsFutureWatcher](){
-        Node *emsEbomRootNode = emsFutureWatcher->result();
-
-        if(emsEbomRootNode != 0)
-        {
-            TreeModel *emsModel = new TreeModel();
-
-            QStringList header;
-            header.append("Item Name");
-
-            emsModel->setHorizontalHeaderLabels(header);
-
-            emsModel->setRootNode(emsEbomRootNode);
-
-
-            tcemsMutex.lock();
-
-            TreeModel *tceModel = (TreeModel*)ui->treeViewTCe->model();
-
-            ui->treeVieweMS->setModel(emsModel);
-
-            if(tceModel != 0)
-            {
-                tceModel->rootNode()->setMatchingNode(emsEbomRootNode);
-
-                equaliseNodeChildrenCount(tceModel->rootNode());
-
-                equaliseNodeExpansion(tceModel->rootNode(), ui->treeViewTCe, ui->treeVieweMS);
-
-                Qt::SortOrder order = ui->treeViewTCe->header()->sortIndicatorOrder();
-                ui->treeViewTCe->model()->sort(0, order);
-                ui->treeVieweMS->model()->sort(0, order);
-
-                mNodeTreesOK = true;
-                emit checkStatus();
+            if(childNode1->id() == childNode2->id() && childNode2->matchingNode() == 0) {
+                compareChildren(childNode1, childNode2);
+                break;
             }
-
-            tcemsMutex.unlock();
         }
 
-        delete emsFutureWatcher;
-    });
+        if(childNode1->nodeStatus() == NodeStatus::NotInTCe || childNode1->nodeStatus() == NodeStatus::NotInEms) {
+            Node *dummyNode = new Node(NodeType::DummyType, childNode1->id(), childNode1->name(), childNode1->revision());
+            item2->appendRow(dummyNode);
 
-    emsFutureWatcher->setFuture(QtConcurrent::run([this, pathToeMSExtract]() -> Node* {
-        qint64 timeStamp = emsTimeStamp;
-
-        if(timeStamp != emsTimeStamp) return 0;
-
-        QVariantList usedRangeValues;
-
-        bool errorWithExcelAxObject = false;
-
-        if(SUCCEEDED(CoInitializeEx(NULL, COINIT_MULTITHREADED)))
-        {
-            QScopedPointer<QAxObject> excelApplication;
-
-            try
-            {
-                excelApplication.reset(new QAxObject("Excel.Application"));
-            }
-
-            catch(...){errorWithExcelAxObject = true;}
-
-            if(!excelApplication->isNull())
-            {
-                QScopedPointer<QAxObject> workbooks;
-
-                try
-                {
-                    excelApplication->setProperty("Visible", false);
-
-                    workbooks.reset(excelApplication->querySubObject("Workbooks"));
-                }
-
-                catch(...){errorWithExcelAxObject = true;}
-
-                if(!workbooks->isNull())
-                {
-                    QScopedPointer<QAxObject> workbook;
-
-                    try
-                    {
-                        workbook.reset(workbooks->querySubObject("Open(const QString&)", pathToeMSExtract));
-                    }
-
-                    catch(...){errorWithExcelAxObject = true;}
-
-                    if(!workbook->isNull())
-                    {
-                        QScopedPointer<QAxObject> worksheets;
-
-                        try
-                        {
-                            worksheets.reset(workbook->querySubObject("Worksheets"));
-                        }
-
-                        catch(...){errorWithExcelAxObject = true;}
-
-                        if(!worksheets->isNull() || worksheets->dynamicCall("Count").toInt() < 1)
-                        {
-                            QScopedPointer<QAxObject> worksheet;
-
-                            try
-                            {
-                                worksheet.reset(workbook->querySubObject("Worksheets(int)",1));
-                            }
-
-                            catch(...){errorWithExcelAxObject = true;}
-
-                            if(!worksheet->isNull())
-                            {
-                                try
-                                {
-                                    QScopedPointer<QAxObject> usedRange(worksheet->querySubObject("UsedRange"));
-                                    QScopedPointer<QAxObject> usedRangeCells(usedRange->querySubObject("Cells"));
-
-                                    usedRangeValues = usedRangeCells->property("Value").toList();
-                                }
-
-                                catch(...){errorWithExcelAxObject = true;}
-                            }
-                        }
-
-                        workbook->dynamicCall("Close");
-                    }
-                }
-
-                excelApplication->dynamicCall("Quit()");
-            }
-
-            CoUninitialize();
+            compareChildren(childNode1, dummyNode);
         }
 
-        if(timeStamp != emsTimeStamp || errorWithExcelAxObject) return 0;
-
-        //############################################
-
-        int tceRevisionColumnIndex = -1, captionColumnIndex = -1, childrenPartExternalIdColumnIndex = -1, externalIdColumnIndex = -1;
-
-        QVariantList emsExtractHeaderData = usedRangeValues.takeFirst().toList();
-
-        if(emsExtractHeaderData.contains("TCe_Revision")) tceRevisionColumnIndex = emsExtractHeaderData.indexOf("TCe_Revision");
-        else return 0;
-
-        if(emsExtractHeaderData.contains("caption")) captionColumnIndex = emsExtractHeaderData.indexOf("caption");
-        else return 0;
-
-        if(emsExtractHeaderData.contains("children: Part: externalID")) childrenPartExternalIdColumnIndex = emsExtractHeaderData.indexOf("children: Part: externalID");
-        else return 0;
-
-        if(emsExtractHeaderData.contains("externalID")) externalIdColumnIndex = emsExtractHeaderData.indexOf("externalID");
-        else return 0;
-
-        //#####################################
-
-        QMultiHash<QString, QString> rangeValues;
-        rangeValues.reserve(3 * usedRangeValues.length());
-
-        int phDsCounter = 0;
-
-        QString ebomNodeExternalId;
-
-        foreach (QVariant row, usedRangeValues) {
-            QVariantList rowToList = row.toList();
-
-            QString externalId = rowToList[externalIdColumnIndex].value<QString>(),
-                    caption = rowToList[captionColumnIndex].value<QString>().trimmed();
-
-            rangeValues.insert(externalId, rowToList[tceRevisionColumnIndex].value<QString>());
-            rangeValues.insert(externalId, caption);
-            rangeValues.insert(externalId, rowToList[childrenPartExternalIdColumnIndex].value<QString>());
-
-            if(caption.startsWith("'PH")||caption.startsWith("'DS")) phDsCounter++;
-
-            if(caption.contains("' - 'EBOM")) ebomNodeExternalId = externalId;
+        if(childNode1->nodeStatus() == NodeStatus::HasChildrenToBeImported ||
+                childNode1->nodeStatus() == NodeStatus::PhToBeImported ||
+                childNode1->nodeStatus() == NodeStatus::WrongRevisionInEms) {
+            hasChildrenToImport = true;
+        } else if (childNode1->nodeStatus() == NodeStatus::NotInEms ||
+                   childNode1->nodeStatus() == NodeStatus::NotInTCe ||
+                   childNode1->nodeStatus() == NodeStatus::WrongNameInEms) {
+            parentNeedsToBeImported = true;
         }
 
-        phDsCounter = phDsCounter < 1 ? 1 : phDsCounter;
-
-        if(timeStamp != emsTimeStamp || ebomNodeExternalId.isNull() || ebomNodeExternalId.isEmpty()) return 0;
-
-        //#####################################################
-
-        int progressCounter = 0;
-
-        int previousProgressBarValue = 0;
-
-        int progressBarEmsMax = ui->progressBareMS->maximum();
-
-        std::function<Node* (QString const &externalId)> createEmsNode = [&](QString const &externalId) -> Node *{
-            if(externalId.isNull() || externalId.isEmpty()) return 0;
-
-            QMultiHash<QString, QString>::iterator iterator = rangeValues.find(externalId);
-
-            int counter = 0;
-
-            QString caption, childrenExternalIds;
-            int revision = 0;
-
-            while(iterator != rangeValues.end() && iterator.key() == externalId) {
-                switch (counter) {
-                case 2:
-                    revision = ((QString)(iterator.value())).toInt();
-                    break;
-                case 1:
-                    caption = iterator.value();
-                    break;
-                case 0:
-                    childrenExternalIds = ((QString)(iterator.value())).trimmed();
-                    childrenExternalIds = childrenExternalIds.mid(1, childrenExternalIds.length() - 2);
-                    break;
-                default:
-                    break;
-                }
-
-                ++iterator;
-                counter++;
-            }
-
-            QString name, id;
-
-            if(!caption.isNull() && !caption.isEmpty()) {
-                QStringList idAndName = caption.trimmed().split("' - '");
-
-                if(idAndName.length() == 2) {
-                    id = idAndName[0].trimmed();
-                    id = id.right(id.length() - 1);
-
-                    name = idAndName[1].trimmed();
-                    name = name.left(name.length() - 1);
-                }
+        if(node1 != 0) {
+            if(childNode1->rowCount() == 0) {
+                node1->setNumOfChildLeafNodes(node1->numOfChildLeafNodes() + 1);
             }
 
             else {
-                return 0;
+                node1->setNumOfChildLeafNodes(node1->numOfChildLeafNodes() + childNode1->numOfChildLeafNodes());
             }
+        }
+    }
 
-            Node *node = new Node(NodeType::eMSNode, id, name, revision);
-            node->setCaption(caption);
-            node->setExternalId(externalId);
+    for(int rowNumberItem2 = 0; rowNumberItem2 < item2->rowCount(); rowNumberItem2++) {
+        Node *childNode2 = (Node *)item2->child(rowNumberItem2);
 
-            progressCounter++;
+        if(childNode2->nodeStatus() == NodeStatus::NotInTCe || childNode2->nodeStatus() == NodeStatus::NotInEms) {
+            Node *dummyNode = new Node(NodeType::DummyType, childNode2->id(), childNode2->name(), childNode2->revision());
+            item1->appendRow(dummyNode);
 
-            int newProgressBarValue = (progressCounter * progressBarEmsMax) / phDsCounter;
+            compareChildren(childNode2, dummyNode);
+        }
 
-            if(newProgressBarValue > previousProgressBarValue) {
-                previousProgressBarValue = newProgressBarValue;
-                emit seteMSProgressBarValue(newProgressBarValue);
-            }
+        if(childNode2->nodeStatus() == NodeStatus::HasChildrenToBeImported ||
+                childNode2->nodeStatus() == NodeStatus::PhToBeImported ||
+                childNode2->nodeStatus() == NodeStatus::WrongRevisionInEms) {
+            hasChildrenToImport = true;
+        } else if (childNode2->nodeStatus() == NodeStatus::NotInEms ||
+                   childNode2->nodeStatus() == NodeStatus::NotInTCe ||
+                   childNode2->nodeStatus() == NodeStatus::WrongNameInEms) {
+            parentNeedsToBeImported = true;
+        }
+    }
 
-            QStringList childrenExternalIdsList;
+    if(node1 != 0 && node2 != 0 &&
+            node1->rowCount() > 0 && node2->rowCount() > 0 &&
+            node1->nodeStatus() != NodeStatus::NotInEms && node2->nodeStatus() != NodeStatus::NotInEms &&
+            node1->nodeStatus() != NodeStatus::NotInTCe && node2->nodeStatus() != NodeStatus::NotInTCe) {
+        if(parentNeedsToBeImported) {
+            node1->setNodeStatus(NodeStatus::PhToBeImported);
+            node2->setNodeStatus(NodeStatus::PhToBeImported);
 
-            if(childrenExternalIds.contains(";")) {childrenExternalIdsList = childrenExternalIds.split(";");}
-            else if(!childrenExternalIds.isEmpty()) {childrenExternalIdsList.append(childrenExternalIds);}
+            teamcenterNode->setCheckState(Qt::Checked);
+        } else if(hasChildrenToImport) {
+            node1->setNodeStatus(NodeStatus::HasChildrenToBeImported);
+            node2->setNodeStatus(NodeStatus::HasChildrenToBeImported);
 
-            if(node->id().startsWith("PH")) {
-                foreach (QString childExternalId, childrenExternalIdsList) {
-                    node->addChild(createEmsNode(childExternalId));
-                }
-            }
+            teamcenterNode->setCheckState(Qt::Unchecked);
+        } else {
+            node1->setNodeStatus(NodeStatus::OK);
+            node2->setNodeStatus(NodeStatus::OK);
 
-            return node;
-        };
-
-        Node *emsEbomRootNode = createEmsNode(ebomNodeExternalId);
-
-        if(timeStamp != emsTimeStamp || emsEbomRootNode == 0) return 0;
-
-        emit seteMSProgressBarValue(progressBarEmsMax);
-
-
-        return emsEbomRootNode;
-    }));
-}
-
-void EbomCompareView::equaliseNodeExpansion(Node *primaryNode, QTreeView *treeViewExpanded, QTreeView *treeViewToExpand) {
-    if(treeViewExpanded->isExpanded(primaryNode->index())) {
-        Node *matchingNode = primaryNode->matchingNode();
-
-        if(matchingNode != 0) {
-            treeViewToExpand->expand(matchingNode->index());
-
-            QHash<QString, Node*> primaryNodeChildren = primaryNode->children();
-
-            foreach (Node *childNode, primaryNodeChildren) {
-                equaliseNodeExpansion(childNode, treeViewExpanded, treeViewToExpand);
-            }
+            teamcenterNode->setCheckState(Qt::Unchecked);
         }
     }
 }
 
-void EbomCompareView::equaliseNodeChildrenCount(Node *primaryNode)
+void EbomCompareView::deselectCurrentAndChildren(QStandardItem *item)
 {
-    if(primaryNode->matchingNode() != 0)
-    {
-        QHash<QString, Node*> nodeChildren = primaryNode->children(),
-                matchingNodeChildren = primaryNode->matchingNode()->children();
+    item->setCheckState(Qt::Unchecked);
 
-        foreach (Node *child, nodeChildren) {
-            if(child->matchingNode() == 0) {
-                Node *dummyNode = new Node(NodeType::DummyType, child->id(), child->name(), child->revision());
-                dummyNode->setMatchingNode(child, true);
-                child->setMatchingNode(dummyNode, true);
-
-                primaryNode->matchingNode()->addChild(dummyNode);
-            }
-
-            equaliseNodeChildrenCount(child);
-        }
-
-        foreach (Node *child, matchingNodeChildren) {
-            if(child->matchingNode() == 0) {
-                Node *dummyNode = new Node(NodeType::DummyType, child->id(), child->name(), child->revision());
-                dummyNode->setMatchingNode(child, true);
-                child->setMatchingNode(dummyNode, true);
-
-                primaryNode->addChild(dummyNode);
-            }
-
-            equaliseNodeChildrenCount(child);
-        }
+    for(int index = 0; index < item->rowCount(); index++) {
+        deselectCurrentAndChildren(item->child(index));
     }
 }
 
-void EbomCompareView::clearDummyNodes(Node *node)
+void EbomCompareView::resetCurrentAndChildren(QStandardItem *item)
 {
-    if(node->matchingNode() != 0 && node->matchingNode()->nodeType() == NodeType::DummyType) node->setMatchingNode(0, true);
+    Node *node = (Node *)item;
 
-
-    QHash<QString, Node*> children = node->children();
-
-    foreach (Node *child, children) {
-        clearDummyNodes(child);
+    if(node->nodeStatus() == NodeStatus::PhToBeImported || node->nodeStatus() == NodeStatus::WrongRevisionInEms) {
+        node->setCheckState(Qt::Checked);
     }
 
-    if(node->nodeType() == NodeType::DummyType) {
-        if(node->matchingNode() != 0) {node->matchingNode()->setMatchingNode(0, true);}
-        ((Node*)node->parent())->removeChild(node);
+    else {
+        node->setCheckState(Qt::Unchecked);
+    }
+
+    for(int index = 0; index < item->rowCount(); index++) {
+        resetCurrentAndChildren(item->child(index));
     }
 }
 
-void EbomCompareView::on_treeViewTCe_expanded(const QModelIndex &index)
+int EbomCompareView::getNumOfLeafNodesToBeImported(QStandardItem *item)
+{
+    if(item != modelTeamcenter->invisibleRootItem() && item->checkState() == Qt::Checked) {
+        return ((Node *)item)->numOfChildLeafNodes();
+    }
+
+    else {
+        int accum = 0;
+
+        for(int index = 0; index < item->rowCount(); index++) {
+            accum += getNumOfLeafNodesToBeImported(item->child(index));
+        }
+
+        return accum;
+    }
+}
+
+void EbomCompareView::onTreeViewExpandedCollapsed(const QModelIndex &index)
 {
     if(index.isValid())
     {
-        Node* matchingNode = ((TreeModel*)(ui->treeViewTCe->model()))->nodeFromIndex(index)->matchingNode();
+        Node *matchingNode = ((Node *)((QStandardItemModel *)(index.model()))->itemFromIndex(index))->matchingNode();
 
         if(matchingNode != 0) {
-            QTreeView *treeViewToExpand = ui->treeVieweMS;
+            QTreeView *treeViewExpandedCollapsed = 0, *treeViewToExpandCollapse = 0;
+            if(index.model() == modelTeamcenter) {
+                treeViewExpandedCollapsed = ui->treeViewTeamcenter;
+                treeViewToExpandCollapse = ui->treeVieweProcessDesigner;
+            }
+
+            else {
+                treeViewExpandedCollapsed = ui->treeVieweProcessDesigner;
+                treeViewToExpandCollapse = ui->treeViewTeamcenter;
+            }
+
             QModelIndex indexToExpand = matchingNode->index();
-            if(!treeViewToExpand->isExpanded(indexToExpand)) treeViewToExpand->expand(indexToExpand);
+
+            if(treeViewExpandedCollapsed->isExpanded(index)) {
+                if(!treeViewToExpandCollapse->isExpanded(indexToExpand)) {treeViewToExpandCollapse->expand(indexToExpand);}
+            }
+
+            else {
+                if(treeViewToExpandCollapse->isExpanded(indexToExpand)) {treeViewToExpandCollapse->collapse(indexToExpand);}
+            }
         }
     }
 }
 
-void EbomCompareView::on_treeViewTCe_collapsed(const QModelIndex &index)
+void EbomCompareView::modelReplaceChildren(QList<QStandardItem *> newChildren, QStandardItemModel *model)
 {
-    if(index.isValid())
-    {
-        Node* matchingNode = ((TreeModel*)(ui->treeViewTCe->model()))->nodeFromIndex(index)->matchingNode();
+    mUpdateStats = false;
+    model->removeRows(0, model->rowCount());
+    mUpdateStats = true;
+    model->appendRow(newChildren);
 
-        if(matchingNode != 0) {
-            QTreeView *treeViewToCollapse = ui->treeVieweMS;
-            QModelIndex indexToExpand = matchingNode->index();
-            if(treeViewToCollapse->isExpanded(indexToExpand)) treeViewToCollapse->collapse(indexToExpand);
+    if(modelTeamcenter->rowCount() > 0 && modelProcessDesigner->rowCount() > 0) {
+        QStandardItem *invisibleRootItemTeamcenter = modelTeamcenter->invisibleRootItem(),
+                *invisibleRootItemProcessDesigner = modelProcessDesigner->invisibleRootItem();
+
+        mUpdateStats = false;
+        compareChildren(invisibleRootItemTeamcenter, invisibleRootItemProcessDesigner);
+        mUpdateStats = true;
+
+        setNumOfLeafNodesInTeamcenter();
+        onItemChanged(0);
+
+        if(ui->lineEditProjectId->text().trimmed().isEmpty()) {
+            ui->lineEditProjectId->setText(settings.value(((Node *)invisibleRootItemTeamcenter->child(0))->id(), QString()).value<QString>());
         }
+
+        mNodeTreesOK = true;
+
+        emit checkStatus();
     }
-}
 
-void EbomCompareView::on_treeVieweMS_expanded(const QModelIndex &index)
-{
-    if(index.isValid())
-    {
-        Node* matchingNode = ((TreeModel*)(ui->treeVieweMS->model()))->nodeFromIndex(index)->matchingNode();
+    else {
+        mNodeTreesOK = false;
 
-        if(matchingNode != 0) {
-            QTreeView *treeViewToExpand = ui->treeViewTCe;
-            QModelIndex indexToExpand = matchingNode->index();
-            if(!treeViewToExpand->isExpanded(indexToExpand)) treeViewToExpand->expand(indexToExpand);
-        }
+        emit checkStatus();
     }
-}
 
-void EbomCompareView::on_treeVieweMS_collapsed(const QModelIndex &index)
-{
-    if(index.isValid())
-    {
-        Node* matchingNode = ((TreeModel*)(ui->treeVieweMS->model()))->nodeFromIndex(index)->matchingNode();
-
-        if(matchingNode != 0) {
-            QTreeView *treeViewToCollapse = ui->treeViewTCe;
-            QModelIndex indexToExpand = matchingNode->index();
-            if(treeViewToCollapse->isExpanded(indexToExpand)) treeViewToCollapse->collapse(indexToExpand);
-        }
-    }
+    modelTeamcenter->sort(0, ui->treeViewTeamcenter->header()->sortIndicatorOrder());
+    modelProcessDesigner->sort(0, ui->treeVieweProcessDesigner->header()->sortIndicatorOrder());
 }
 
 void EbomCompareView::on_lineEditProjectId_textChanged(const QString &arg1)
 {
+    QRegExp regExpProjectId("\\d+");
+
     if(!regExpProjectId.exactMatch(arg1)) {
         mProjectIdOK = false;
-        ui->lineEditProjectId->setStyleSheet("background-color: rgb(255, 57, 60);");
+
+        QPalette palette;
+        palette.setColor(QPalette::Base, Qt::red);
+
+        ui->lineEditProjectId->setPalette(palette);
     }
 
     else {
         mProjectIdOK = true;
-        ui->lineEditProjectId->setStyleSheet("background-color: rgb(255, 255, 255);");
+
+
+        QPalette palette;
+        palette.setColor(QPalette::Base, Qt::white);
+
+        ui->lineEditProjectId->setPalette(palette);
     }
 
     emit checkStatus();
+}
+
+QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QString pathToTeamcenterExtract, qint64 *referenceTimeStamp, QProgressBar *progressBarToUpdate)
+{
+    qint64 timeStamp = *referenceTimeStamp;
+
+    qint64 lastFilePos = 0, teamcenterExtractFileSize = 0;
+    int lastTeamcenterProgressBarValue = 0,
+            maxTeamcenterProgressBarValue = progressBarToUpdate->maximum();
+
+    QList<QStandardItem *> teamcenterTree;
+
+    if(pathToTeamcenterExtract.isEmpty() || !QFile::exists(pathToTeamcenterExtract)) {return QList<QStandardItem *>();}
+
+    QFile teamcenterExtractFile(pathToTeamcenterExtract);
+
+    if(!teamcenterExtractFile.open(QFile::ReadOnly|QFile::Text)) {return QList<QStandardItem *>();}
+
+    teamcenterExtractFileSize = teamcenterExtractFile.size();
+
+    QTextStream teamcenterExtractTextStream(&teamcenterExtractFile);
+
+    QString delimiter;
+    QStringList params;
+    int indexOf_bl_item_item_id = -1, indexOf_bl_rev_object_name = -1, indexOf_bl_rev_item_revision_id = -1;
+
+    if(!teamcenterExtractTextStream.atEnd()) {
+        delimiter = teamcenterExtractTextStream.readLine().trimmed();
+
+        if(delimiter.length() < 1) {return QList<QStandardItem *>();}
+    }
+
+    else {return QList<QStandardItem *>();}
+
+    if(!teamcenterExtractTextStream.atEnd()) {
+        params = teamcenterExtractTextStream.readLine().trimmed().split(",");
+
+        indexOf_bl_item_item_id = params.indexOf("bl_item_item_id");
+        indexOf_bl_rev_object_name = params.indexOf("bl_rev_object_name");
+        indexOf_bl_rev_item_revision_id = params.indexOf("bl_rev_item_revision_id");
+
+        if(indexOf_bl_item_item_id < 0 ||
+                indexOf_bl_rev_object_name < 0 ||
+                indexOf_bl_rev_item_revision_id < 0) {return QList<QStandardItem *>();}
+    }
+
+    else {return QList<QStandardItem *>();}
+
+    QString bomLineRegExpPattern = "(\\d+)" + delimiter + "\\s"; //level
+
+    int paramsLength = params.length();
+    for(int index = 0; index < paramsLength; index++) {
+        if(index == indexOf_bl_item_item_id || index == indexOf_bl_rev_object_name) {
+            bomLineRegExpPattern += "(.+)";
+        }
+
+        else if(index == indexOf_bl_rev_item_revision_id) {
+            bomLineRegExpPattern += "(\\d+)";
+        }
+
+        else {
+            bomLineRegExpPattern += ".*";
+        }
+
+        if(index < paramsLength - 1) {
+            bomLineRegExpPattern += delimiter + "\\s";
+        }
+    }
+
+    QRegExp bomLineRegExp(bomLineRegExpPattern);
+
+    QList<Node *> lastNodeOfLevel, nodesToDelete;
+
+    while(!teamcenterExtractTextStream.atEnd()) {
+        if(timeStamp != *referenceTimeStamp) {
+            qDeleteAll(teamcenterTree);
+
+            return QList<QStandardItem *>();
+        }
+
+        qint64 teamcenterExtractFilePos = teamcenterExtractFile.pos();
+
+        if(lastFilePos < teamcenterExtractFilePos)
+        {
+            lastFilePos = teamcenterExtractFilePos;
+
+            int newTeamcenterProgressBarValue = (teamcenterExtractFilePos * maxTeamcenterProgressBarValue) / teamcenterExtractFileSize;
+
+            if(lastTeamcenterProgressBarValue < newTeamcenterProgressBarValue)
+            {
+                lastTeamcenterProgressBarValue = newTeamcenterProgressBarValue;
+
+                QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, lastTeamcenterProgressBarValue));
+            }
+        }
+
+        QString line = teamcenterExtractTextStream.readLine().trimmed();
+
+        if(!bomLineRegExp.exactMatch(line)) {continue;}
+
+        int level = bomLineRegExp.cap(1).toInt(),
+                revision = bomLineRegExp.cap(4).toInt();
+
+        QString id = bomLineRegExp.cap(2),
+                name = bomLineRegExp.cap(3);
+
+        /*if(id == "DS-L405-012701-M07-14") {
+            qDebug() << id;
+        }*/
+
+        if(level > lastNodeOfLevel.length()) {
+            qDebug() << "SKIP: " << id << name;
+            continue;
+        }
+
+        //if(level == 0 || lastNodeOfLevel[level - 1]->id().startsWith("PH", Qt::CaseInsensitive)) {
+             Node *newNode = new Node(NodeType::TCeNode, id, name, revision);
+
+            if(level > 0) {
+                Node *nodeToAppendTo = lastNodeOfLevel[level - 1];
+
+                if(nodeToAppendTo->id().startsWith("PH", Qt::CaseInsensitive)) {
+                    nodeToAppendTo->appendRow(newNode);
+                }
+
+                else {
+                    nodesToDelete.append(newNode);
+                }
+            }
+
+            else {
+                teamcenterTree.append(newNode);
+            }
+
+            if(level == lastNodeOfLevel.length()) {
+                lastNodeOfLevel.append(newNode);
+            }
+
+            else {
+                lastNodeOfLevel[level] = newNode;
+            }
+        //}
+    }
+
+    qDeleteAll(nodesToDelete);
+
+    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, maxTeamcenterProgressBarValue));
+
+    return teamcenterTree;
+}
+
+QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(QString pathToProcessDesignerExtract, qint64 *referenceTimeStamp, QProgressBar *progressBarToUpdate)
+{
+    qint64 timeStamp = *referenceTimeStamp;
+
+    if(pathToProcessDesignerExtract.isEmpty() || !QFile::exists(pathToProcessDesignerExtract)) {return QList<QStandardItem *>();}
+
+    int maxProcessDesignerProgressbarValue = progressBarToUpdate->maximum();
+
+    if(!SUCCEEDED(CoInitializeEx(NULL, COINIT_MULTITHREADED))) {return QList<QStandardItem *>();}
+
+    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*1)/12));
+
+    QScopedPointer<QAxObject> excelApplication(new QAxObject);
+
+    if(!excelApplication->setControl("Excel.Application")) {return QList<QStandardItem *>();}
+
+    excelApplication->setProperty("Visible", false);
+
+    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*2)/12));
+
+    QScopedPointer<QAxObject> workbooks(excelApplication->querySubObject("Workbooks"));
+
+    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*3)/12));
+
+    QScopedPointer<QAxObject> workbook(workbooks->querySubObject("Open(const QString&)", pathToProcessDesignerExtract));
+
+    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*4)/12));
+
+    QScopedPointer<QAxObject> worksheets(workbook->querySubObject("Worksheets"));
+
+    if(worksheets->dynamicCall("Count").toInt() < 1) {return QList<QStandardItem *>();}
+
+    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*5)/12));
+
+    QScopedPointer<QAxObject> worksheet(workbook->querySubObject("Worksheets(int)",1));
+
+    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*6)/12));
+
+    QScopedPointer<QAxObject> usedRange(worksheet->querySubObject("UsedRange"));
+
+    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*7)/12));
+
+    QScopedPointer<QAxObject> usedRangeCells(usedRange->querySubObject("Cells"));
+
+    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*8)/12));
+
+    QVariantList usedRangeValues = usedRangeCells->property("Value").toList();
+
+    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*9)/12));
+
+    workbook->dynamicCall("Close");
+
+    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*10)/12));
+
+    excelApplication->dynamicCall("Quit()");
+
+    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*11)/12));
+
+    CoUninitialize();
+
+    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, maxProcessDesignerProgressbarValue/4));
+
+    //###########################################
+
+    if(timeStamp != *referenceTimeStamp) {return QList<QStandardItem *>();}
+
+    int tceRevisionColumnIndex = -1, captionColumnIndex = -1, childrenPartExternalIdColumnIndex = -1, externalIdColumnIndex = -1;
+
+    QVariantList emsExtractHeaderData = usedRangeValues.takeFirst().toList();
+
+    if(emsExtractHeaderData.contains("TCe_Revision")) tceRevisionColumnIndex = emsExtractHeaderData.indexOf("TCe_Revision");
+    else return QList<QStandardItem *>();
+
+    if(emsExtractHeaderData.contains("caption")) captionColumnIndex = emsExtractHeaderData.indexOf("caption");
+    else return QList<QStandardItem *>();
+
+    if(emsExtractHeaderData.contains("children: Part: externalID")) childrenPartExternalIdColumnIndex = emsExtractHeaderData.indexOf("children: Part: externalID");
+    else return QList<QStandardItem *>();
+
+    if(emsExtractHeaderData.contains("externalID")) externalIdColumnIndex = emsExtractHeaderData.indexOf("externalID");
+    else return QList<QStandardItem *>();
+
+    //###########################################
+
+    int usedRangeValuesLength = usedRangeValues.length();
+
+    Node *nodesArray[usedRangeValuesLength] = {};
+    QStringList childrenExternalIdsArray[usedRangeValuesLength] = {};
+
+    QHash<QString, int> externalIdAndIndexHash;
+    externalIdAndIndexHash.reserve(usedRangeValuesLength);
+
+    for(int index = 0; index < usedRangeValuesLength; index++) {
+        QVariantList rowToList = usedRangeValues[index].toList();
+
+        QString externalId = rowToList[externalIdColumnIndex].value<QString>().trimmed(),
+                caption = rowToList[captionColumnIndex].value<QString>().trimmed(),
+                childrenExternalIds = rowToList[childrenPartExternalIdColumnIndex].value<QString>().remove("\"").trimmed();
+        int revision = rowToList[tceRevisionColumnIndex].value<QString>().toInt();
+
+        if(externalId.isEmpty() || caption.isEmpty() || revision == 0) {continue;}
+
+        QStringList idAndName = caption.trimmed().split("' - '");
+
+        QString id = "", name = "";
+        if(idAndName.length() == 2) {
+            id = idAndName[0].trimmed();
+            id = id.right(id.length() - 1);
+
+            name = idAndName[1].trimmed();
+            name = name.left(name.length() - 1);
+        }
+
+        else {continue;}
+
+        QStringList childrenExternalIdsList;
+
+        if(childrenExternalIds.contains(";")) {childrenExternalIdsList = childrenExternalIds.split(";");}
+        else if(!childrenExternalIds.isEmpty()) {childrenExternalIdsList.append(childrenExternalIds);}
+
+        Node *newNode = new Node(NodeType::eMSNode, id, name, revision);
+        newNode->setExternalId(externalId);
+        newNode->setCaption(caption);
+
+        nodesArray[index] = newNode;
+
+        childrenExternalIdsArray[index] = childrenExternalIdsList;
+
+        externalIdAndIndexHash.insert(externalId, index);
+
+        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, maxProcessDesignerProgressbarValue/4 + ((maxProcessDesignerProgressbarValue/4) * index)/usedRangeValuesLength));
+    }
+
+    for(int index = 0; index < usedRangeValuesLength; index++) {
+        QStringList currentChildrenExternalIds = childrenExternalIdsArray[index];
+        Node *currentNode = nodesArray[index];
+
+        foreach (QString childExternalId, currentChildrenExternalIds) {
+            int childNodeIndex = externalIdAndIndexHash.value(childExternalId, -1);
+
+            if(childNodeIndex > -1)
+            {
+                if(currentNode != 0 && currentNode->id().startsWith("PH", Qt::CaseInsensitive)) {
+                    currentNode->appendRow(nodesArray[childNodeIndex]);
+                }
+
+                else {
+                    delete nodesArray[childNodeIndex];
+                    nodesArray[childNodeIndex] = 0;
+                }
+            }
+        }
+
+        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, 2*(maxProcessDesignerProgressbarValue/4) + ((maxProcessDesignerProgressbarValue/4) * index)/usedRangeValuesLength));
+    }
+
+    QList<QStandardItem *> processDesignerTree;
+
+    for(int index = 0; index < usedRangeValuesLength; index++) {
+        Node *node = nodesArray[index];
+
+        if(node != 0 && node->parent() == 0) {
+            processDesignerTree.append(node);
+        }
+
+        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, 3*(maxProcessDesignerProgressbarValue/4) + ((maxProcessDesignerProgressbarValue/4) * index)/usedRangeValuesLength));
+    }
+
+    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, maxProcessDesignerProgressbarValue));
+
+    return processDesignerTree;
+}
+
+void EbomCompareView::on_treeViewTeamcenter_customContextMenuRequested(const QPoint &pos)
+{
+    QModelIndex index = ui->treeViewTeamcenter->indexAt(pos);
+
+    if(index.isValid()) {
+        QMenu menu;
+        QAction* deselectAction(menu.addAction("Deselect current node and children"));
+        QAction* resetAction(menu.addAction("Reset selection for current node and children"));
+
+        deselectAction->connect(deselectAction, &QAction::triggered, [this, deselectAction, resetAction, index](){
+            deselectCurrentAndChildren(modelTeamcenter->itemFromIndex(index));
+
+            delete deselectAction;
+            delete resetAction;
+        });
+
+        resetAction->connect(resetAction, &QAction::triggered, [this, deselectAction, resetAction, index](){
+            resetCurrentAndChildren(modelTeamcenter->itemFromIndex(index));
+
+            delete deselectAction;
+            delete resetAction;
+        });
+
+        menu.exec(QCursor::pos());
+    }
+}
+
+void EbomCompareView::onItemChanged(QStandardItem *item)
+{
+    Q_UNUSED(item);
+
+    if(!mUpdateStats) {return;}
+
+    int numOfLeafNodesToBeImported = getNumOfLeafNodesToBeImported(modelTeamcenter->invisibleRootItem());
+
+    ui->label_NumOfNodesToBeImported->setText(QString::number(numOfLeafNodesToBeImported));
+
+    ui->label_PercentageToBeImported->setText(QString::number(((double)numOfLeafNodesToBeImported/(double)numOfLeafNodesInTeamcenter)*100, 'f', 2) + "%");
+}
+
+void EbomCompareView::setNumOfLeafNodesInTeamcenter()
+{
+    numOfLeafNodesInTeamcenter = 0;
+
+    for(int index = 0; index < modelTeamcenter->invisibleRootItem()->rowCount(); index++) {
+        numOfLeafNodesInTeamcenter += ((Node *)modelTeamcenter->invisibleRootItem()->child(index))->numOfChildLeafNodes();
+    }
+
+    ui->label_numOfLeafNodesInTce->setText(QString::number(numOfLeafNodesInTeamcenter));
 }

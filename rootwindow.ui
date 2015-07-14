@@ -61,7 +61,6 @@
            <attribute name="title">
             <string>Tab</string>
            </attribute>
-           <zorder>plainTextEditLog</zorder>
           </widget>
          </widget>
         </item>
@@ -128,7 +127,20 @@
              <string notr="true">background-color: rgb(100, 149, 237);</string>
             </property>
             <property name="text">
-             <string>PH to be imported</string>
+             <string>Parent to be imported</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignCenter</set>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="label">
+            <property name="styleSheet">
+             <string notr="true">background-color: rgb(192, 192, 192);</string>
+            </property>
+            <property name="text">
+             <string>Has children to be imported</string>
             </property>
             <property name="alignment">
              <set>Qt::AlignCenter</set>

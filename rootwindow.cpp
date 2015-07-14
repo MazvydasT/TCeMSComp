@@ -94,8 +94,10 @@ void RootWindow::on_pushButtonGenerate_clicked()
         {
             EbomCompareView* currentCompareView = ((EbomCompareView*)ui->tabWidget->widget(index));
 
-            QHash<QString, QString> returnedPairs = currentCompareView->exportPairs(),
+            QHash<QString, QString> returnedPairs,
                     returnedParams = currentCompareView->exportParams();
+
+            currentCompareView->exportPairs(currentCompareView->getModelTeamcenter()->invisibleRootItem(), &returnedPairs);
 
             QString projectId = returnedParams["Project Id"],
                     versionName = returnedParams["VersionName"],

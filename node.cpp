@@ -16,7 +16,11 @@ Node::Node(NodeType nodeType, const QString &id, const QString &name, int revisi
 {
     setSelectable(false);
 
-    setText(mId + " - " + mName + " - Rev. " + QString::number(mRevision));
+    if(mNodeType == NodeType::TCeNode) {
+        setCheckable(true);
+    }
+
+    setText(mId + "/" + QString::number(mRevision) + "-" + mName);
 
     if(mNodeType == NodeType::DummyType)
     {
@@ -44,125 +48,29 @@ Node::Node(NodeType nodeType, const QString &id, const QString &name, int revisi
     setNodeStatus(mDefaultStatus);
 }
 
-Node::~Node(){}
+Node::~Node(){
+    if(mMatchingNode != 0) {
+        mMatchingNode->setMatchingNode(0);
 
-void Node::setMatchingNode(Node *node, bool skipComparison)
-{
-    if(node == 0)
-    {
-        mMatchingNode = 0;
-        if(!skipComparison) setNodeStatus(mDefaultStatus);
-    }
-
-    else
-    {
-        mMatchingNode = node;
-
-        if(mMatchingNode->matchingNode() != this)
-        {
-            mMatchingNode->setMatchingNode(this, true);
+        if(mMatchingNode->nodeType() == NodeType::TCeNode) {
+            mMatchingNode->setCheckState(Qt::Unchecked);
         }
 
-
-        if(!skipComparison)
-        {
-            if(mId.compare(mMatchingNode->id(), Qt::CaseInsensitive) == 0)
-            {
-                if(mNameRegExp.exactMatch(mMatchingNode->name()) && mMatchingNode->nameRegExp().exactMatch(mName))
-                {
-                    if(mRevision == mMatchingNode->revision())
-                    {
-                        setNodeStatus(NodeStatus::OK);
-                        mMatchingNode->setNodeStatus(NodeStatus::OK);
-                    }
-
-                    else
-                    {
-                        setNodeStatus(NodeStatus::WrongRevisionInEms);
-                        mMatchingNode->setNodeStatus(NodeStatus::WrongRevisionInEms);
-                    }
-                }
-
-                else
-                {
-                    setNodeStatus(NodeStatus::WrongNameInEms);
-                    mMatchingNode->setNodeStatus(NodeStatus::WrongNameInEms);
-                }
+        if(mMatchingNode->nodeType() == NodeType::DummyType) {
+            if(mMatchingNode->parent() != 0) {
+                mMatchingNode->parent()->removeRow(mMatchingNode->row());
             }
+        }
 
-            else
-            {
-                setNodeStatus(mDefaultStatus);
-                mMatchingNode->setMatchingNode(0);
-                mMatchingNode = 0;
-            }
-
-
-            if(mMatchingNode != 0)
-            {
-                QHash<QString, Node*> matchingNodeChildren = mMatchingNode->children();
-
-                if(!mChildren.empty() || !matchingNodeChildren.empty())
-                {
-                    bool descendantNeedsImporting = false, parentNeedsImporting = false;
-
-                    foreach (Node *childNode, mChildren) {
-                        Node *foundMatch = mMatchingNode->children().value(childNode->id());
-
-                        if(foundMatch != 0) childNode->setMatchingNode(foundMatch);
-
-                        NodeStatus childStatus = childNode->nodeStatus();
-                        if(childStatus == NodeStatus::WrongRevisionInEms || childStatus == NodeStatus::PhToBeImported || childStatus == NodeStatus::HasChildrenToBeImported) descendantNeedsImporting = true;
-                        if(childStatus == NodeStatus::NotInEms || childStatus == NodeStatus::NotInTCe || childStatus == NodeStatus::WrongNameInEms) parentNeedsImporting = true;
-                    }
-
-                    foreach(Node *childNode, matchingNodeChildren) {
-                        NodeStatus childStatus = childNode->nodeStatus();
-                        if(childStatus == NodeStatus::WrongRevisionInEms || childStatus == NodeStatus::PhToBeImported || childStatus == NodeStatus::HasChildrenToBeImported) descendantNeedsImporting = true;
-                        if(childStatus == NodeStatus::NotInEms || childStatus == NodeStatus::NotInTCe || childStatus == NodeStatus::WrongNameInEms) parentNeedsImporting = true;
-                    }
-
-                    if(mNodeStatus != NodeStatus::WrongNameInEms)
-                    {
-                        if(parentNeedsImporting){
-                            setNodeStatus(NodeStatus::PhToBeImported);
-                            mMatchingNode->setNodeStatus(NodeStatus::PhToBeImported);
-                        }
-
-                        else if(descendantNeedsImporting)
-                        {
-                            setNodeStatus(NodeStatus::HasChildrenToBeImported);
-                            mMatchingNode->setNodeStatus(NodeStatus::HasChildrenToBeImported);
-                        }
-
-                        else
-                        {
-                            setNodeStatus(NodeStatus::OK);
-                            mMatchingNode->setNodeStatus(NodeStatus::OK);
-                        }
-                    }
-                }
-            }
+        else {
+            mMatchingNode->setNodeStatus(mMatchingNode->nodeDefaultStatus());
         }
     }
 }
 
-void Node::addChild(Node *node)
+void Node::setMatchingNode(Node *node)
 {
-    if(node != 0)
-    {
-        appendRow(node);
-        mChildren.insert(node->id(), node);
-    }
-}
-
-void Node::removeChild(Node *node)
-{
-    if(node != 0)
-    {
-        mChildren.remove(mChildren.key(node));
-        removeRow(node->row());
-    }
+    mMatchingNode = node;
 }
 
 void Node::setNodeStatus(NodeStatus nodeStatus)
@@ -171,44 +79,38 @@ void Node::setNodeStatus(NodeStatus nodeStatus)
     {
         mNodeStatus = nodeStatus;
 
+        if(mNodeStatus == NodeStatus::NotInEms || mNodeStatus == NodeStatus::NotInTCe) {
+            setCheckable(false);
+        }
+
+        else if(mNodeType == NodeType::TCeNode) {
+            setCheckable(true);
+        }
+
         switch (mNodeStatus) {
         case NodeStatus::NotInTCe:
             setBackground(mRed);
-            if(mNodeType == NodeType::TCeNode) {setCheckState(Qt::Unchecked); setCheckable(false);}
             break;
         case NodeStatus::NotInEms:
             setBackground(mGreen);
-            if(mNodeType == NodeType::TCeNode) {setCheckState(Qt::Unchecked); setCheckable(false);}
             break;
         case NodeStatus::WrongRevisionInEms:
             setBackground(mOrange);
-            if(mNodeType == NodeType::TCeNode) {setCheckState(Qt::Checked); setCheckable(true);}
             break;
         case NodeStatus::WrongNameInEms:
             setBackground(mPink);
-            if(mNodeType == NodeType::TCeNode) {setCheckState(Qt::Unchecked); setCheckable(true);}
             break;
         case NodeStatus::PhToBeImported:
             setBackground(mBlue);
-            if(mNodeType == NodeType::TCeNode) {setCheckState(Qt::Checked); setCheckable(true);}
             break;
         case NodeStatus::HasChildrenToBeImported:
             setBackground(mGrey);
-            if(mNodeType == NodeType::TCeNode) {setCheckState(Qt::Unchecked); setCheckable(true);}
             break;
         case NodeStatus::OK:
             setBackground(mWhite);
-            if(mNodeType == NodeType::TCeNode) {setCheckState(Qt::Unchecked); setCheckable(true);}
             break;
         default:
             break;
-        }
-
-        if(mNodeStatus == mDefaultStatus && mNodeType != NodeType::DummyType)
-        {
-            foreach (Node* childNode, mChildren) {
-                childNode->setNodeStatus(mDefaultStatus);
-            }
         }
     }
 }

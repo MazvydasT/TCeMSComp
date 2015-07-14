@@ -82,9 +82,6 @@
                <verstretch>0</verstretch>
               </sizepolicy>
              </property>
-             <property name="styleSheet">
-              <string notr="true">background-color: rgb(255, 57, 60);</string>
-             </property>
              <property name="frame">
               <bool>true</bool>
              </property>
@@ -433,7 +430,7 @@
           <number>3</number>
          </property>
          <item>
-          <widget class="QProgressBar" name="progressBarTCe">
+          <widget class="QProgressBar" name="progressBarTeamcenter">
            <property name="maximumSize">
             <size>
              <width>16777215</width>
@@ -492,7 +489,7 @@
           <number>3</number>
          </property>
          <item>
-          <widget class="QProgressBar" name="progressBareMS">
+          <widget class="QProgressBar" name="progressBarProcessDesigner">
            <property name="maximumSize">
             <size>
              <width>16777215</width>
@@ -577,7 +574,10 @@
            </widget>
           </item>
           <item>
-           <widget class="QTreeView" name="treeViewTCe">
+           <widget class="QTreeView" name="treeViewTeamcenter">
+            <property name="contextMenuPolicy">
+             <enum>Qt::CustomContextMenu</enum>
+            </property>
             <property name="frameShape">
              <enum>QFrame::NoFrame</enum>
             </property>
@@ -627,7 +627,7 @@
            </widget>
           </item>
           <item>
-           <widget class="QTreeView" name="treeVieweMS">
+           <widget class="QTreeView" name="treeVieweProcessDesigner">
             <property name="frameShape">
              <enum>QFrame::NoFrame</enum>
             </property>
@@ -652,8 +652,185 @@
      </layout>
     </widget>
    </item>
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayout_7">
+     <property name="spacing">
+      <number>0</number>
+     </property>
+     <property name="leftMargin">
+      <number>5</number>
+     </property>
+     <property name="topMargin">
+      <number>5</number>
+     </property>
+     <property name="rightMargin">
+      <number>5</number>
+     </property>
+     <property name="bottomMargin">
+      <number>5</number>
+     </property>
+     <item>
+      <widget class="QLabel" name="labelNumOfLeafNodesinTeamcenter">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="text">
+        <string>Number of leaf nodes in TCe: </string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_numOfLeafNodesInTce">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="text">
+        <string>0</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="labelNumOfLeafNodesToBeImported">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="text">
+        <string>Number of leaf nodes to be imported to eMS: </string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_NumOfNodesToBeImported">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="text">
+        <string>0</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="labelPercentagetobeimported">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="text">
+        <string>Percentage to be imported to eMS: </string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_PercentageToBeImported">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="text">
+        <string>0%</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
   </layout>
  </widget>
  <resources/>
- <connections/>
+ <connections>
+  <connection>
+   <sender>treeViewTeamcenter</sender>
+   <signal>expanded(QModelIndex)</signal>
+   <receiver>EbomCompareView</receiver>
+   <slot>onTreeViewExpandedCollapsed(QModelIndex)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>170</x>
+     <y>344</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>343</x>
+     <y>251</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>treeViewTeamcenter</sender>
+   <signal>collapsed(QModelIndex)</signal>
+   <receiver>EbomCompareView</receiver>
+   <slot>onTreeViewExpandedCollapsed(QModelIndex)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>170</x>
+     <y>344</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>343</x>
+     <y>251</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>treeVieweProcessDesigner</sender>
+   <signal>expanded(QModelIndex)</signal>
+   <receiver>EbomCompareView</receiver>
+   <slot>onTreeViewExpandedCollapsed(QModelIndex)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>517</x>
+     <y>344</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>343</x>
+     <y>251</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>treeVieweProcessDesigner</sender>
+   <signal>collapsed(QModelIndex)</signal>
+   <receiver>EbomCompareView</receiver>
+   <slot>onTreeViewExpandedCollapsed(QModelIndex)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>517</x>
+     <y>344</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>343</x>
+     <y>251</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+ <slots>
+  <slot>onTreeViewExpandedCollapsed(QModelIndex)</slot>
+ </slots>
 </ui>

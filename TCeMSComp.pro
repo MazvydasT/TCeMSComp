@@ -17,14 +17,12 @@ TEMPLATE = app
 SOURCES += main.cpp\
     rootwindow.cpp \
     ebomcompareview.cpp \
-    node.cpp \
-    treemodel.cpp
+    node.cpp
 
 HEADERS  += \
     rootwindow.h \
     ebomcompareview.h \
-    node.h \
-    treemodel.h
+    node.h
 
 FORMS    += \
     rootwindow.ui \

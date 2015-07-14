@@ -30,6 +30,9 @@ enum NodeType
     DummyType
 };
 
+//Q_DECLARE_FLAGS(NodeStatuses, NodeStatus)
+//Q_DECLARE_OPERATORS_FOR_FLAGS(NodeStatuses)
+
 class Node : public QStandardItem
 {
 public:
@@ -37,7 +40,7 @@ public:
     ~Node();
 
     Node *matchingNode() {return mMatchingNode;}
-    void setMatchingNode(Node *node, bool skipComparison = false);
+    void setMatchingNode(Node *node);
 
     const QString &id() const {return mId;}
 
@@ -45,34 +48,30 @@ public:
 
     int revision() {return mRevision;}
 
-    void addChild(Node *node);
-    void removeChild(Node *node);
+    int numOfChildLeafNodes() {return mNumOfChildLeafNodes;}
+    void setNumOfChildLeafNodes(int value) {mNumOfChildLeafNodes = value;}
+
+    void setExternalId(const QString &extId) {mExternalId = extId;}
+    const QString &externalId() {return mExternalId;}
+
+    void setCaption(const QString &cap) {mCaption = cap;}
+    const QString &caption() {return mCaption;}
 
     NodeStatus nodeStatus() {return mNodeStatus;}
     void setNodeStatus(NodeStatus nodeStatus);
+
+    NodeStatus nodeDefaultStatus() {return mDefaultStatus;}
 
     NodeType nodeType() {return mNodeType;}
 
     const QRegExp &nameRegExp() {return mNameRegExp;}
 
-    const QHash<QString, Node*> children(){return mChildren;}
-
-    Node *nodeParent() {return (Node*)parent();}
-
-    const QString &caption(){return mCaption;}
-    void setCaption(const QString &value){mCaption = value;}
-
-    const QString &externalId(){return mExternalId;}
-    void setExternalId(const QString &value){mExternalId = value;}
-
 private:
     Node *mMatchingNode = 0;
 
-    QString mId, mName, mCaption, mExternalId;
+    QString mId, mName, mExternalId, mCaption;
 
-    int mRevision = 0;
-
-    QHash<QString, Node*> mChildren;
+    int mRevision = 0, mNumOfChildLeafNodes = 0;
 
     NodeStatus mNodeStatus = NodeStatus::OK, mDefaultStatus = NodeStatus::OK;
 

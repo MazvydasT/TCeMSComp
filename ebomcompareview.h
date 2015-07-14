@@ -7,9 +7,12 @@
 #include <QDateTime>
 #include <QFileDialog>
 #include <QFutureWatcher>
+#include <QMenu>
+#include <QProgressBar>
 #include <QRegExp>
 #include <QScrollBar>
 #include <QSettings>
+#include <QSharedPointer>
 #include <QtConcurrent>
 #include <QTreeView>
 
@@ -17,7 +20,6 @@
 #include <functional>
 
 #include "node.h"
-#include "treemodel.h"
 
 namespace Ui {
 class EbomCompareView;
@@ -33,47 +35,64 @@ public:
 
     bool statusOK(){return mProjectIdOK&mNodeTreesOK;}
 
-    QHash<QString, QString> exportPairs();
+    void exportPairs(QStandardItem *item, QHash<QString, QString> *outputHash);
     QHash<QString, QString> exportParams();
+
+    QStandardItemModel *getModelTeamcenter() {return modelTeamcenter;}
 
 private slots:
     void on_pushButtonTce_clicked();
+
     void on_pushButton_clicked();
 
-    void on_treeViewTCe_expanded(const QModelIndex &index);
-
-    void on_treeViewTCe_collapsed(const QModelIndex &index);
-
-    void on_treeVieweMS_expanded(const QModelIndex &index);
-
-    void on_treeVieweMS_collapsed(const QModelIndex &index);
-
     void on_lineEditProjectId_textChanged(const QString &arg1);
+
+    QFutureWatcher<QList<QStandardItem *>> *dequeueFutureWatcher(QQueue<QFutureWatcher<QList<QStandardItem *>> *> *queueToDequeueFrom) {return queueToDequeueFrom->dequeue();}
+
+    int countQueuedFutures(QQueue<QFutureWatcher<QList<QStandardItem *>> *> *queueToCount){return queueToCount->count();}
+
+    void modelReplaceChildren(QList<QStandardItem *> newChildren, QStandardItemModel *model);
+
+    void onTreeViewExpandedCollapsed(const QModelIndex &index);
+    void on_treeViewTeamcenter_customContextMenuRequested(const QPoint &pos);
+
+    void onItemChanged(QStandardItem *item);
 
 private:
     Ui::EbomCompareView *ui;
 
-    QTabWidget *parentTabWidget = 0;
-
-    qint64 tceTimeStamp = 0, emsTimeStamp = 0;
-
-    QList<QStandardItem *> tceNodeList, emsNodeList;
-
-    QRegExp regExpTreeNodeEntry, regExpNodeItemId, regExpNodeItemRevision, regExpNodeParentId, regExpNodeItemAJTDisplayName, regExpProjectId;
-
-    QMutex tcemsMutex;
+    qint64 teamcenterTimeStamp = 0, processDesignerTimeStamp = 0;
 
     QSettings settings;
 
-    bool mProjectIdOK = false, mNodeTreesOK = false;
+    bool mProjectIdOK = false, mNodeTreesOK = false, mUpdateStats = true;
 
-    void equaliseNodeExpansion(Node *primaryNode, QTreeView *treeViewExpanded, QTreeView *treeViewToExpand);
-    void equaliseNodeChildrenCount(Node *primaryNode);
-    void clearDummyNodes(Node *node);
+    int numOfLeafNodesInTeamcenter = 0;
+
+    void setNumOfLeafNodesInTeamcenter();
+
+    QQueue<QFutureWatcher<QList<QStandardItem *>> *> mQueueFutureWatcherTeamcenter, mQueueFutureWatcherProcessDesigner;
+
+    QStandardItemModel *modelTeamcenter = 0, *modelProcessDesigner = 0;
+
+
+    QList<QStandardItem *>buildEBOMTreeFromTeamcenterExtract(QString pathToTeamcenterExtract, qint64 *referenceTimeStamp, QProgressBar *progressBarToUpdate);
+
+    QList<QStandardItem *>buildEBOMTreeFromProcessDesignerExtract(QString pathToProcessDesignerExtract, qint64 *referenceTimeStamp, QProgressBar *progressBarToUpdate);
+
+    void monitorQueue(QQueue<QFutureWatcher<QList<QStandardItem *>> *> *mQueueFutureWatcher, QStandardItemModel *model);
+
+    void buildEBOMTree(QList<QStandardItem *> (EbomCompareView::*fn)(QString, qint64 *, QProgressBar *), QString pathToExtract, QStandardItemModel *model, QQueue<QFutureWatcher<QList<QStandardItem *>> *> *queueFutureWatcher, qint64 *timeStamp, QProgressBar *progressBar);
+
+    void compareChildren(QStandardItem *item1, QStandardItem *item2);
+
+    void deselectCurrentAndChildren(QStandardItem *item);
+
+    void resetCurrentAndChildren(QStandardItem *item);
+
+    int getNumOfLeafNodesToBeImported(QStandardItem *item);
 
 signals:
-    int setTCeProgressBarValue(int value);
-    int seteMSProgressBarValue(int value);
     void checkStatus();
 };
 
