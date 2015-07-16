@@ -39,6 +39,8 @@ public:
     Node(NodeType nodeType, const QString &id, const QString &name, int revision);
     ~Node();
 
+    bool isOrHasDescendentsOfWrongType = false;
+
     Node *matchingNode() {return mMatchingNode;}
     void setMatchingNode(Node *node);
 
@@ -57,6 +59,12 @@ public:
     void setCaption(const QString &cap) {mCaption = cap;}
     const QString &caption() {return mCaption;}
 
+    void setItemType(const QString &iType) {mItemType = iType;}
+    const QString &itemType() {return mItemType;}
+
+    void setLastModUser(const QString &lastModeUser) {mLastModUser = lastModeUser;}
+    const QString &lastModUser() {return mLastModUser;}
+
     NodeStatus nodeStatus() {return mNodeStatus;}
     void setNodeStatus(NodeStatus nodeStatus);
 
@@ -69,7 +77,7 @@ public:
 private:
     Node *mMatchingNode = 0;
 
-    QString mId, mName, mExternalId, mCaption;
+    QString mId, mName, mExternalId, mCaption, mItemType, mLastModUser;
 
     int mRevision = 0, mNumOfChildLeafNodes = 0;
 

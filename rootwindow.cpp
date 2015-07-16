@@ -13,6 +13,8 @@ RootWindow::RootWindow(QWidget *parent) :
     ui->splitter->setSizes(sizes);
 
     connect(ui->tabEbomCompareView, SIGNAL(checkStatus()), this, SLOT(onCheckStatus()));
+
+    ui->tabEbomCompareView->parentTabWidget = ui->tabWidget;
 }
 
 RootWindow::~RootWindow()
@@ -35,6 +37,7 @@ void RootWindow::on_tabWidget_tabCloseRequested(int index)
 void RootWindow::on_actionAdd_Tab_triggered()
 {
     EbomCompareView *compareView = new EbomCompareView();
+    compareView->parentTabWidget = ui->tabWidget;
 
     connect(compareView, SIGNAL(checkStatus()), this, SLOT(onCheckStatus()));
 

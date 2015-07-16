@@ -7,6 +7,8 @@ EbomCompareView::EbomCompareView(QWidget *parent) :
 {
     ui->setupUi(this);
 
+    ui->textEditWrongItemTypeLog->hide();
+
     QPalette palette;
     palette.setColor(QPalette::Base, Qt::red);
 
@@ -48,6 +50,9 @@ EbomCompareView::~EbomCompareView()
 
     qDeleteAll(mQueueFutureWatcherTeamcenter);
     qDeleteAll(mQueueFutureWatcherProcessDesigner);
+
+    delete modelTeamcenter;
+    delete modelProcessDesigner;
 
     delete ui;
 }
@@ -158,6 +163,11 @@ void EbomCompareView::buildEBOMTree(QList<QStandardItem *> (EbomCompareView::*fn
     setNumOfLeafNodesInTeamcenter();
     onItemChanged(0);
 
+    mNodeTreesOK = false;
+    emit checkStatus();
+
+    parentTabWidget->setTabText(parentTabWidget->indexOf(this), "Tab");
+
     auto futureWatcherTeamcenter = new QFutureWatcher<QList<QStandardItem *>>();
 
     queueFutureWatcher->append(futureWatcherTeamcenter);
@@ -212,7 +222,9 @@ void EbomCompareView::compareChildren(QStandardItem *item1, QStandardItem *item2
                         node1->setNodeStatus(NodeStatus::WrongRevisionInEms);
                         node2->setNodeStatus(NodeStatus::WrongRevisionInEms);
 
-                        teamcenterNode->setCheckState(Qt::Checked);
+                        if(teamcenterNode->isCheckable()) {
+                            teamcenterNode->setCheckState(Qt::Checked);
+                        }
                     }
                 }
 
@@ -304,17 +316,23 @@ void EbomCompareView::compareChildren(QStandardItem *item1, QStandardItem *item2
             node1->setNodeStatus(NodeStatus::PhToBeImported);
             node2->setNodeStatus(NodeStatus::PhToBeImported);
 
-            teamcenterNode->setCheckState(Qt::Checked);
+            if(teamcenterNode->isCheckable()) {
+                teamcenterNode->setCheckState(Qt::Checked);
+            }
         } else if(hasChildrenToImport) {
             node1->setNodeStatus(NodeStatus::HasChildrenToBeImported);
             node2->setNodeStatus(NodeStatus::HasChildrenToBeImported);
 
-            teamcenterNode->setCheckState(Qt::Unchecked);
+            if(teamcenterNode->isCheckable()) {
+                teamcenterNode->setCheckState(Qt::Unchecked);
+            }
         } else {
             node1->setNodeStatus(NodeStatus::OK);
             node2->setNodeStatus(NodeStatus::OK);
 
-            teamcenterNode->setCheckState(Qt::Unchecked);
+            if(teamcenterNode->isCheckable()) {
+                teamcenterNode->setCheckState(Qt::Unchecked);
+            }
         }
     }
 }
@@ -333,11 +351,15 @@ void EbomCompareView::resetCurrentAndChildren(QStandardItem *item)
     Node *node = (Node *)item;
 
     if(node->nodeStatus() == NodeStatus::PhToBeImported || node->nodeStatus() == NodeStatus::WrongRevisionInEms) {
-        node->setCheckState(Qt::Checked);
+        if(node->isCheckable()) {
+            node->setCheckState(Qt::Checked);
+        }
     }
 
     else {
-        node->setCheckState(Qt::Unchecked);
+        if(node->isCheckable()) {
+            node->setCheckState(Qt::Unchecked);
+        }
     }
 
     for(int index = 0; index < item->rowCount(); index++) {
@@ -411,6 +433,19 @@ void EbomCompareView::modelReplaceChildren(QList<QStandardItem *> newChildren, Q
         setNumOfLeafNodesInTeamcenter();
         onItemChanged(0);
 
+        parentTabWidget->setTabText(parentTabWidget->indexOf(this), ((Node *)newChildren[0])->id());
+
+        QScrollBar *vScrollBar = 0;
+        if(model == modelTeamcenter) {
+            vScrollBar = ui->treeVieweProcessDesigner->verticalScrollBar();
+        }
+
+        else {
+            vScrollBar = ui->treeViewTeamcenter->verticalScrollBar();
+        }
+
+        if(vScrollBar != 0) {emit vScrollBar->valueChanged(vScrollBar->value());}
+
         if(ui->lineEditProjectId->text().trimmed().isEmpty()) {
             ui->lineEditProjectId->setText(settings.value(((Node *)invisibleRootItemTeamcenter->child(0))->id(), QString()).value<QString>());
         }
@@ -466,6 +501,9 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QStri
 
     QList<QStandardItem *> teamcenterTree;
 
+    QMetaObject::invokeMethod(ui->textEditWrongItemTypeLog, "hide", Qt::QueuedConnection);
+    QMetaObject::invokeMethod(ui->textEditWrongItemTypeLog, "clear", Qt::QueuedConnection);
+
     if(pathToTeamcenterExtract.isEmpty() || !QFile::exists(pathToTeamcenterExtract)) {return QList<QStandardItem *>();}
 
     QFile teamcenterExtractFile(pathToTeamcenterExtract);
@@ -476,37 +514,59 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QStri
 
     QTextStream teamcenterExtractTextStream(&teamcenterExtractFile);
 
-    QString delimiter;
     QStringList params;
-    int indexOf_bl_item_item_id = -1, indexOf_bl_rev_object_name = -1, indexOf_bl_rev_item_revision_id = -1;
+    int indexOf_bl_item_item_id = -1,
+            indexOf_bl_rev_object_name = -1,
+            indexOf_bl_rev_item_revision_id = -1,
+            indexOf_bl_item_object_type = -1,
+            indexOf_last_mod_user = -1;
 
-    if(!teamcenterExtractTextStream.atEnd()) {
-        delimiter = teamcenterExtractTextStream.readLine().trimmed();
+    for(int counter = 1; counter < 3; counter++) {
+        if(!teamcenterExtractTextStream.atEnd()) {
+            teamcenterExtractTextStream.readLine();
+        }
 
-        if(delimiter.length() < 1) {return QList<QStandardItem *>();}
+        else {return QList<QStandardItem *>();}
     }
 
-    else {return QList<QStandardItem *>();}
-
     if(!teamcenterExtractTextStream.atEnd()) {
-        params = teamcenterExtractTextStream.readLine().trimmed().split(",");
+        params = teamcenterExtractTextStream.readLine().trimmed().remove("#COL level,").split(",");
 
         indexOf_bl_item_item_id = params.indexOf("bl_item_item_id");
         indexOf_bl_rev_object_name = params.indexOf("bl_rev_object_name");
         indexOf_bl_rev_item_revision_id = params.indexOf("bl_rev_item_revision_id");
+        indexOf_bl_item_object_type = params.indexOf("bl_item_object_type");
+        indexOf_last_mod_user = params.indexOf("last_mod_user");
 
         if(indexOf_bl_item_item_id < 0 ||
                 indexOf_bl_rev_object_name < 0 ||
-                indexOf_bl_rev_item_revision_id < 0) {return QList<QStandardItem *>();}
+                indexOf_bl_rev_item_revision_id < 0 ||
+                indexOf_bl_item_object_type < 0 ||
+                indexOf_last_mod_user < 0) {return QList<QStandardItem *>();}
     }
 
     else {return QList<QStandardItem *>();}
+
+    QString delimiter = teamcenterExtractTextStream.readLine().trimmed().remove("#DELIMITER ");
+
+    if(delimiter.length() < 1) {return QList<QStandardItem *>();}
+
+    for(int counter = 1; counter < 4; counter++) {
+        if(!teamcenterExtractTextStream.atEnd()) {
+            teamcenterExtractTextStream.readLine();
+        }
+
+        else {return QList<QStandardItem *>();}
+    }
 
     QString bomLineRegExpPattern = "(\\d+)" + delimiter + "\\s"; //level
 
     int paramsLength = params.length();
     for(int index = 0; index < paramsLength; index++) {
-        if(index == indexOf_bl_item_item_id || index == indexOf_bl_rev_object_name) {
+        if(index == indexOf_bl_item_item_id ||
+                index == indexOf_bl_rev_object_name ||
+                index == indexOf_bl_item_object_type ||
+                index == indexOf_last_mod_user) {
             bomLineRegExpPattern += "(.+)";
         }
 
@@ -526,6 +586,8 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QStri
     QRegExp bomLineRegExp(bomLineRegExpPattern);
 
     QList<Node *> lastNodeOfLevel, nodesToDelete;
+
+    QString wrongItemTypeAccumulator = "";
 
     while(!teamcenterExtractTextStream.atEnd()) {
         if(timeStamp != *referenceTimeStamp) {
@@ -554,53 +616,81 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QStri
 
         if(!bomLineRegExp.exactMatch(line)) {continue;}
 
-        int level = bomLineRegExp.cap(1).toInt(),
-                revision = bomLineRegExp.cap(4).toInt();
+        int level = bomLineRegExp.cap(1).toInt() - 1,
+                revision = bomLineRegExp.cap(indexOf_bl_rev_item_revision_id + 2).toInt();
 
-        QString id = bomLineRegExp.cap(2),
-                name = bomLineRegExp.cap(3);
-
-        /*if(id == "DS-L405-012701-M07-14") {
-            qDebug() << id;
-        }*/
+        QString id = bomLineRegExp.cap(indexOf_bl_item_item_id + 2),
+                name = bomLineRegExp.cap(indexOf_bl_rev_object_name + 2),
+                itemType = bomLineRegExp.cap(indexOf_bl_item_object_type + 2),
+                lastModUser = bomLineRegExp.cap(indexOf_last_mod_user + 2);
 
         if(level > lastNodeOfLevel.length()) {
             qDebug() << "SKIP: " << id << name;
             continue;
         }
 
-        //if(level == 0 || lastNodeOfLevel[level - 1]->id().startsWith("PH", Qt::CaseInsensitive)) {
-             Node *newNode = new Node(NodeType::TCeNode, id, name, revision);
+        Node *newNode = new Node(NodeType::TCeNode, id, name, revision);
+        newNode->setItemType(itemType);
+        newNode->setLastModUser(lastModUser);
 
-            if(level > 0) {
-                Node *nodeToAppendTo = lastNodeOfLevel[level - 1];
+        if(!itemType.startsWith("F_")) {
+            for(int index = 0; index < level; index++) {
+                Node *currentNode = lastNodeOfLevel[index];
 
-                if(nodeToAppendTo->id().startsWith("PH", Qt::CaseInsensitive)) {
-                    nodeToAppendTo->appendRow(newNode);
+                if(!currentNode->isOrHasDescendentsOfWrongType) {
+                    currentNode->setTristate(true);
+                    currentNode->setCheckState(Qt::PartiallyChecked);
+                    currentNode->isOrHasDescendentsOfWrongType = true;
                 }
 
-                else {
-                    nodesToDelete.append(newNode);
-                }
+                wrongItemTypeAccumulator += "<div style=\"margin-left:" + QString::number(index * 10) + "px\">" + currentNode->text() +
+                        " (" + currentNode->itemType() + ") (" + currentNode->lastModUser() +  ")</div>";
+            }
+
+            if(!newNode->isOrHasDescendentsOfWrongType) {
+                newNode->setTristate(true);
+                newNode->setCheckState(Qt::PartiallyChecked);
+                newNode->isOrHasDescendentsOfWrongType = true;
+            }
+
+            wrongItemTypeAccumulator += "<div style=\"margin-left:" + QString::number(level * 10) + "px\">" + newNode->text() +
+                    " (<strong>" + itemType + "</strong>) (" + lastModUser + ")</div><br>";
+        }
+
+        if(level > 0) {
+            Node *nodeToAppendTo = lastNodeOfLevel[level - 1];
+
+            if(nodeToAppendTo->itemType() == "F_Placeholder") {
+                nodeToAppendTo->appendRow(newNode);
             }
 
             else {
-                teamcenterTree.append(newNode);
+                nodesToDelete.append(newNode);
             }
+        }
 
-            if(level == lastNodeOfLevel.length()) {
-                lastNodeOfLevel.append(newNode);
-            }
+        else {
+            teamcenterTree.append(newNode);
+        }
 
-            else {
-                lastNodeOfLevel[level] = newNode;
-            }
-        //}
+        if(level == lastNodeOfLevel.length()) {
+            lastNodeOfLevel.append(newNode);
+        }
+
+        else {
+            lastNodeOfLevel[level] = newNode;
+        }
     }
 
     qDeleteAll(nodesToDelete);
 
     QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, maxTeamcenterProgressBarValue));
+
+    QMetaObject::invokeMethod(ui->textEditWrongItemTypeLog, "clear", Qt::QueuedConnection);
+    if(!wrongItemTypeAccumulator.isEmpty()) {
+        QMetaObject::invokeMethod(ui->textEditWrongItemTypeLog, "insertHtml", Qt::QueuedConnection, Q_ARG(QString, wrongItemTypeAccumulator));
+        QMetaObject::invokeMethod(ui->textEditWrongItemTypeLog, "show", Qt::QueuedConnection);
+    }
 
     return teamcenterTree;
 }

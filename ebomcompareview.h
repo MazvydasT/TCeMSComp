@@ -33,6 +33,8 @@ public:
     explicit EbomCompareView(QWidget *parent = 0);
     ~EbomCompareView();
 
+    QTabWidget *parentTabWidget = 0;
+
     bool statusOK(){return mProjectIdOK&mNodeTreesOK;}
 
     void exportPairs(QStandardItem *item, QHash<QString, QString> *outputHash);

@@ -27,3 +27,8 @@ HEADERS  += \
 FORMS    += \
     rootwindow.ui \
     ebomcompareview.ui
+
+RESOURCES += \
+    resources.qrc
+
+RC_ICONS = icon.ico

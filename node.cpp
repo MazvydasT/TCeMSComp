@@ -52,13 +52,15 @@ Node::~Node(){
     if(mMatchingNode != 0) {
         mMatchingNode->setMatchingNode(0);
 
-        if(mMatchingNode->nodeType() == NodeType::TCeNode) {
+        if(mMatchingNode->nodeType() == NodeType::TCeNode && mMatchingNode->isCheckable()) {
             mMatchingNode->setCheckState(Qt::Unchecked);
         }
 
         if(mMatchingNode->nodeType() == NodeType::DummyType) {
             if(mMatchingNode->parent() != 0) {
                 mMatchingNode->parent()->removeRow(mMatchingNode->row());
+            } else if(mMatchingNode->model()->invisibleRootItem()->child(mMatchingNode->row()) == mMatchingNode) {
+                mMatchingNode->model()->invisibleRootItem()->removeRow(mMatchingNode->row());
             }
         }
 
@@ -83,7 +85,7 @@ void Node::setNodeStatus(NodeStatus nodeStatus)
             setCheckable(false);
         }
 
-        else if(mNodeType == NodeType::TCeNode) {
+        else if(mNodeType == NodeType::TCeNode && !isOrHasDescendentsOfWrongType) {
             setCheckable(true);
         }
 
