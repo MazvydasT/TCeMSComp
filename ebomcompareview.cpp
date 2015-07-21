@@ -781,8 +781,17 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(
 
     int usedRangeValuesLength = usedRangeValues.length();
 
-    Node *nodesArray[usedRangeValuesLength] = {};
-    QStringList childrenExternalIdsArray[usedRangeValuesLength] = {};
+	//Node *nodesArray[usedRangeValuesLength] = {};
+	//QStringList childrenExternalIdsArray[usedRangeValuesLength] = {};
+
+	Node **nodesArray = new Node *[usedRangeValuesLength]();
+	QStringList *childrenExternalIdsArray = new QStringList[usedRangeValuesLength]();
+
+	//QVector<Node *> nodesArray;
+	//nodesArray.reserve(usedRangeValuesLength);
+
+	//QVector<QStringList> childrenExternalIdsArray;
+	//childrenExternalIdsArray.reserve(usedRangeValuesLength);
 
     QHash<QString, int> externalIdAndIndexHash;
     externalIdAndIndexHash.reserve(usedRangeValuesLength);
@@ -862,6 +871,9 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(
 
         QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, 3*(maxProcessDesignerProgressbarValue/4) + ((maxProcessDesignerProgressbarValue/4) * index)/usedRangeValuesLength));
     }
+
+	delete [] nodesArray;
+	delete [] childrenExternalIdsArray;
 
     QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, maxProcessDesignerProgressbarValue));
 

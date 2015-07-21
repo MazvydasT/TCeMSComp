@@ -15,6 +15,7 @@
 #include <QSharedPointer>
 #include <QtConcurrent>
 #include <QTreeView>
+#include <QVector>
 
 #include <objbase.h>
 #include <functional>
