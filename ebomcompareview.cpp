@@ -339,7 +339,9 @@ void EbomCompareView::compareChildren(QStandardItem *item1, QStandardItem *item2
 
 void EbomCompareView::deselectCurrentAndChildren(QStandardItem *item)
 {
-    item->setCheckState(Qt::Unchecked);
+	if(item->isCheckable()) {
+		item->setCheckState(Qt::Unchecked);
+	}
 
     for(int index = 0; index < item->rowCount(); index++) {
         deselectCurrentAndChildren(item->child(index));
