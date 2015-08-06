@@ -832,24 +832,38 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(
 
         nodesArray[index] = newNode;
 
-        childrenExternalIdsArray[index] = childrenExternalIdsList;
+		childrenExternalIdsArray[index] = childrenExternalIdsList;
 
         externalIdAndIndexHash.insert(externalId, index);
 
         QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, maxProcessDesignerProgressbarValue/4 + ((maxProcessDesignerProgressbarValue/4) * index)/usedRangeValuesLength));
     }
 
+	QList<QStandardItem*> repeatedNodeCheckList;
+
     for(int index = 0; index < usedRangeValuesLength; index++) {
         QStringList currentChildrenExternalIds = childrenExternalIdsArray[index];
         Node *currentNode = nodesArray[index];
 
-        foreach (QString childExternalId, currentChildrenExternalIds) {
+		foreach (QString childExternalId, currentChildrenExternalIds) {
             int childNodeIndex = externalIdAndIndexHash.value(childExternalId, -1);
 
             if(childNodeIndex > -1)
             {
                 if(currentNode != 0 && currentNode->id().startsWith("PH", Qt::CaseInsensitive)) {
-                    currentNode->appendRow(nodesArray[childNodeIndex]);
+					Node *childNode = nodesArray[childNodeIndex];
+
+					if(repeatedNodeCheckList.contains(childNode)) {
+						Node *tempNode = new Node(childNode->nodeType(), childNode->id(), childNode->name(), childNode->revision());
+						tempNode->setCaption(childNode->caption());
+						tempNode->setExternalId(childNode->externalId());
+
+						childNode = tempNode;
+					}
+
+					repeatedNodeCheckList.append(childNode);
+
+					currentNode->appendRow(childNode);
                 }
 
                 else {
@@ -859,7 +873,7 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(
             }
         }
 
-        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, 2*(maxProcessDesignerProgressbarValue/4) + ((maxProcessDesignerProgressbarValue/4) * index)/usedRangeValuesLength));
+		QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, 2*(maxProcessDesignerProgressbarValue/4) + ((maxProcessDesignerProgressbarValue/4) * index)/usedRangeValuesLength));
     }
 
     QList<QStandardItem *> processDesignerTree;
