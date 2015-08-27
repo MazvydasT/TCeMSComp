@@ -244,6 +244,7 @@ void EbomCompareView::compareChildren(QStandardItem *item1, QStandardItem *item2
 	}
 
 	bool hasChildrenToImport = false, parentNeedsToBeImported = false;
+	int numOfChildrenWithWrongRev = 0;
 
 	if(node1 != 0) {node1->setNumOfChildLeafNodes(0);}
 
@@ -270,6 +271,11 @@ void EbomCompareView::compareChildren(QStandardItem *item1, QStandardItem *item2
 		   childNode1->nodeStatus() == NodeStatus::PhToBeImported ||
 		   childNode1->nodeStatus() == NodeStatus::WrongRevisionInEms) {
 			hasChildrenToImport = true;
+
+			if(childNode1->nodeStatus() == NodeStatus::WrongRevisionInEms &&
+			   childNode1->itemType() != "F_Placeholder") {
+				numOfChildrenWithWrongRev++;
+			}
 		} else if ((childNode1->nodeStatus() == NodeStatus::NotInEms ||
 					childNode1->nodeStatus() == NodeStatus::NotInTCe ||
 					childNode1->nodeStatus() == NodeStatus::WrongNameInEms) &&
@@ -290,6 +296,12 @@ void EbomCompareView::compareChildren(QStandardItem *item1, QStandardItem *item2
 				node1->setNumOfChildLeafNodes(node1->numOfChildLeafNodes() + childNode1->numOfChildLeafNodes());
 			}
 		}
+	}
+
+	if(item1->rowCount() > 1 &&
+	   numOfChildrenWithWrongRev > 1 &&
+	   (double)numOfChildrenWithWrongRev/(double)item1->rowCount() > 0.1) { //If more than 10% of children needs to be imported - import parent instead
+		parentNeedsToBeImported = true;
 	}
 
 	for(int rowNumberItem2 = 0; rowNumberItem2 < item2->rowCount(); rowNumberItem2++) {
