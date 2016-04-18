@@ -575,7 +575,7 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QStri
 
 	if(delimiter.length() < 1) {return QList<QStandardItem *>();}
 
-	for(int counter = 1; counter < 4; counter++) {
+	for(int counter = 1; counter < 3; counter++) {
 		if(!teamcenterExtractTextStream.atEnd()) {
 			teamcenterExtractTextStream.readLine();
 		}
@@ -613,6 +613,8 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QStri
 
 	QString wrongItemTypeAccumulator = "";
 
+	bool rootNodeIsFProgram = false;
+
 	while(!teamcenterExtractTextStream.atEnd()) {
 		if(timeStamp != *referenceTimeStamp) {
 			qDeleteAll(teamcenterTree);
@@ -640,13 +642,22 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QStri
 
 		if(!bomLineRegExp.exactMatch(line)) {continue;}
 
-		int level = bomLineRegExp.cap(1).toInt() - 1,
+		int level = bomLineRegExp.cap(1).toInt(),// - 1,
 				revision = bomLineRegExp.cap(indexOf_bl_rev_item_revision_id + 2).toInt();
 
 		QString id = bomLineRegExp.cap(indexOf_bl_item_item_id + 2),
 				name = bomLineRegExp.cap(indexOf_bl_rev_object_name + 2),
 				itemType = bomLineRegExp.cap(indexOf_bl_item_object_type + 2),
 				lastModUser = bomLineRegExp.cap(indexOf_last_mod_user + 2);
+
+		if(itemType == "F_Program" && level == 0) {
+			rootNodeIsFProgram = true;
+			continue;
+		}
+
+		if(rootNodeIsFProgram) {
+			level--;
+		}
 
 		if(level > lastNodeOfLevel.length()) {
 			qDebug() << "SKIP: " << id << name;
