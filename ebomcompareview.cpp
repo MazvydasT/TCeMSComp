@@ -141,7 +141,7 @@ void EbomCompareView::monitorQueue(QQueue<QFutureWatcher<QList<QStandardItem *>>
 
 				if(queueCount > 0) {
 					qDeleteAll(nodes);
-				}
+                }
 
 				else if(!nodes.isEmpty()) {
 					QMetaObject::invokeMethod(this, "modelReplaceChildren", Qt::BlockingQueuedConnection, Q_ARG(QList<QStandardItem *>, nodes), Q_ARG(QStandardItemModel *, model));
@@ -442,8 +442,9 @@ void EbomCompareView::onTreeViewExpandedCollapsed(const QModelIndex &index)
 void EbomCompareView::modelReplaceChildren(QList<QStandardItem *> newChildren, QStandardItemModel *model)
 {
 	mUpdateStats = false;
-	model->removeRows(0, model->rowCount());
-	mUpdateStats = true;
+    model->removeRows(0, model->rowCount());
+    mUpdateStats = true;
+
 	model->appendRow(newChildren);
 
 	if(modelTeamcenter->rowCount() > 0 && modelProcessDesigner->rowCount() > 0) {
@@ -819,14 +820,14 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(
 	//Node *nodesArray[usedRangeValuesLength] = {};
 	//QStringList childrenExternalIdsArray[usedRangeValuesLength] = {};
 
-	Node **nodesArray = new Node *[usedRangeValuesLength]();
-	QStringList *childrenExternalIdsArray = new QStringList[usedRangeValuesLength]();
+    //Node **nodesArray = new Node *[usedRangeValuesLength]();
+    //QStringList *childrenExternalIdsArray = new QStringList[usedRangeValuesLength]();
 
-	//QVector<Node *> nodesArray;
-	//nodesArray.reserve(usedRangeValuesLength);
+    QVector<Node *> nodesArray(usedRangeValuesLength, NULL);
+    //nodesArray.resize(usedRangeValuesLength);
 
-	//QVector<QStringList> childrenExternalIdsArray;
-	//childrenExternalIdsArray.reserve(usedRangeValuesLength);
+    QVector<QStringList> childrenExternalIdsArray(usedRangeValuesLength);
+    //childrenExternalIdsArray.reserve(usedRangeValuesLength);
 
 	QHash<QString, int> externalIdAndIndexHash;
 	externalIdAndIndexHash.reserve(usedRangeValuesLength);
@@ -863,9 +864,11 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(
 		newNode->setExternalId(externalId);
 		newNode->setCaption(caption);
 
-		nodesArray[index] = newNode;
+        //nodesArray[index] = newNode;
+        nodesArray.replace(index, newNode);
 
-		childrenExternalIdsArray[index] = childrenExternalIdsList;
+        //childrenExternalIdsArray[index] = childrenExternalIdsList;
+        childrenExternalIdsArray.replace(index, childrenExternalIdsList);
 
 		externalIdAndIndexHash.insert(externalId, index);
 
@@ -899,9 +902,11 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(
 					currentNode->appendRow(childNode);
 				}
 
-				else {
-					delete nodesArray[childNodeIndex];
-					nodesArray[childNodeIndex] = 0;
+                else {
+                    //delete nodesArray[childNodeIndex];
+                    //nodesArray[childNodeIndex] = 0;
+
+                    nodesArray.replace(childNodeIndex, NULL);
 				}
 			}
 		}
@@ -921,10 +926,10 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(
 		QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, 3*(maxProcessDesignerProgressbarValue/4) + ((maxProcessDesignerProgressbarValue/4) * index)/usedRangeValuesLength));
 	}
 
-	delete [] nodesArray;
-	delete [] childrenExternalIdsArray;
+    //delete [] nodesArray;
+    //delete [] childrenExternalIdsArray;
 
-	QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, maxProcessDesignerProgressbarValue));
+    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, maxProcessDesignerProgressbarValue));
 
 	return processDesignerTree;
 }
