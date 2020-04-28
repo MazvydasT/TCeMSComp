@@ -7,7 +7,7 @@ int main(int argc, char *argv[])
     QApplication a(argc, argv);
     a.setOrganizationName("JLR");
     a.setApplicationName("TCeMSComp");
-    //a.setStyle("fusion");
+    a.setStyle("fusion");
     RootWindow w;
     w.show();
 

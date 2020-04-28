@@ -544,7 +544,7 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QStri
 			indexOf_bl_rev_object_name = -1,
 			indexOf_bl_rev_item_revision_id = -1,
 			indexOf_bl_item_object_type = -1,
-			indexOf_last_mod_user = -1;
+            indexOf_bl_last_mod_user = -1;
 
 	for(int counter = 1; counter < 3; counter++) {
 		if(!teamcenterExtractTextStream.atEnd()) {
@@ -556,18 +556,19 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QStri
 
 	if(!teamcenterExtractTextStream.atEnd()) {
 		params = teamcenterExtractTextStream.readLine().trimmed().remove("#COL level,").split(",");
+        params.removeLast();
 
 		indexOf_bl_item_item_id = params.indexOf("bl_item_item_id");
 		indexOf_bl_rev_object_name = params.indexOf("bl_rev_object_name");
 		indexOf_bl_rev_item_revision_id = params.indexOf("bl_rev_item_revision_id");
 		indexOf_bl_item_object_type = params.indexOf("bl_item_object_type");
-		indexOf_last_mod_user = params.indexOf("last_mod_user");
+        indexOf_bl_last_mod_user = params.indexOf("bl_item_last_mod_user");
 
 		if(indexOf_bl_item_item_id < 0 ||
 		   indexOf_bl_rev_object_name < 0 ||
 		   indexOf_bl_rev_item_revision_id < 0 ||
 		   indexOf_bl_item_object_type < 0 ||
-		   indexOf_last_mod_user < 0) {return QList<QStandardItem *>();}
+           indexOf_bl_last_mod_user < 0) {return QList<QStandardItem *>();}
 	}
 
 	else {return QList<QStandardItem *>();}
@@ -591,7 +592,7 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QStri
 		if(index == indexOf_bl_item_item_id ||
 		   index == indexOf_bl_rev_object_name ||
 		   index == indexOf_bl_item_object_type ||
-		   index == indexOf_last_mod_user) {
+           index == indexOf_bl_last_mod_user) {
 			bomLineRegExpPattern += "(.+)";
 		}
 
@@ -649,7 +650,7 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QStri
 		QString id = bomLineRegExp.cap(indexOf_bl_item_item_id + 2),
 				name = bomLineRegExp.cap(indexOf_bl_rev_object_name + 2),
 				itemType = bomLineRegExp.cap(indexOf_bl_item_object_type + 2),
-				lastModUser = bomLineRegExp.cap(indexOf_last_mod_user + 2);
+                lastModUser = bomLineRegExp.cap(indexOf_bl_last_mod_user + 2);
 
 		if(itemType == "F_Program" && level == 0) {
 			rootNodeIsFProgram = true;
@@ -674,7 +675,7 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QStri
 				Node *currentNode = lastNodeOfLevel[index];
 
 				if(!currentNode->isOrHasDescendentsOfWrongType) {
-					currentNode->setTristate(true);
+                    currentNode->setAutoTristate(true);
 					currentNode->setCheckState(Qt::PartiallyChecked);
 					currentNode->isOrHasDescendentsOfWrongType = true;
 				}
@@ -684,7 +685,7 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QStri
 			}
 
 			if(!newNode->isOrHasDescendentsOfWrongType) {
-				newNode->setTristate(true);
+                newNode->setAutoTristate(true);
 				newNode->setCheckState(Qt::PartiallyChecked);
 				newNode->isOrHasDescendentsOfWrongType = true;
 			}
@@ -841,6 +842,10 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(
 		int revision = rowToList[tceRevisionColumnIndex].value<QString>().toInt();
 
 		if(externalId.isEmpty() || caption.isEmpty() || revision == 0) {continue;}
+
+        if(caption.startsWith("''")) {
+            caption = caption.right(caption.length() - 2);
+        }
 
 		QStringList idAndName = caption.trimmed().split("' - '");
 
