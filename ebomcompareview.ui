@@ -700,7 +700,7 @@
             </sizepolicy>
            </property>
            <property name="text">
-            <string>Number of leaf nodes in TCe: </string>
+            <string>Number of DSs in TCe: </string>
            </property>
            <property name="alignment">
             <set>Qt::AlignCenter</set>
@@ -729,7 +729,7 @@
             </sizepolicy>
            </property>
            <property name="text">
-            <string>Number of leaf nodes to be imported to eMS: </string>
+            <string>Number of DSs to be imported to eMS: </string>
            </property>
            <property name="alignment">
             <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>

@@ -213,7 +213,7 @@ void EbomCompareView::compareChildren(QStandardItem *item1, QStandardItem *item2
 
 			if(node1->nodeType() != NodeType::DummyType && node2->nodeType() != NodeType::DummyType) {
 				if(node1->nameRegExp().exactMatch(node2->name()) && node2->nameRegExp().exactMatch(node1->name())) {
-					if(node1->revision() == node2->revision()) {
+                    if(node1->revision() <= node2->revision()) { //node1 is TCe, node2 is eMS. If revision in eMS is higher than in TCe extract revision mismatch should not be registered.
 						node1->setNodeStatus(NodeStatus::OK);
 						node2->setNodeStatus(NodeStatus::OK);
 					}
@@ -228,19 +228,32 @@ void EbomCompareView::compareChildren(QStandardItem *item1, QStandardItem *item2
 					}
 				}
 
-				else {
-					node1->setNodeStatus(NodeStatus::WrongNameInEms);
-					node2->setNodeStatus(NodeStatus::WrongNameInEms);
+                else { // On name mismatch node should get marked for import
+                    if(node1->revision() > node2->revision()) { //node1 is TCe, node2 is eMS
+                        node1->setNodeStatus(NodeStatus::WrongRevisionInEms);
+                        node2->setNodeStatus(NodeStatus::WrongRevisionInEms);
+
+                        if(teamcenterNode->isCheckable()) {
+                            teamcenterNode->setCheckState(Qt::Checked);
+                        }
+                    }
+
+                    else if (node1->revision() == node2->revision()) { //node1 is TCe, node2 is eMS
+                        node1->setNodeStatus(NodeStatus::WrongNameInEms);
+                        node2->setNodeStatus(NodeStatus::WrongNameInEms);
+
+                        if(teamcenterNode->isCheckable()) {
+                            teamcenterNode->setCheckState(Qt::Checked);
+                        }
+                    }
+
+                    else {
+                        node1->setNodeStatus(NodeStatus::OK);
+                        node2->setNodeStatus(NodeStatus::OK);
+                    }
 				}
 			}
-		}
-
-		else {
-			//node1->setNodeStatus(node1->nodeDefaultStatus());
-			//node2->setNodeStatus(node2->nodeDefaultStatus());
-
-			return;
-		}
+        }
 	}
 
 	bool hasChildrenToImport = false, parentNeedsToBeImported = false;
@@ -277,8 +290,8 @@ void EbomCompareView::compareChildren(QStandardItem *item1, QStandardItem *item2
 				numOfChildrenWithWrongRev++;
 			}
 		} else if ((childNode1->nodeStatus() == NodeStatus::NotInEms ||
-					childNode1->nodeStatus() == NodeStatus::NotInTCe ||
-					childNode1->nodeStatus() == NodeStatus::WrongNameInEms) &&
+                    childNode1->nodeStatus() == NodeStatus::NotInTCe /*||
+                    childNode1->nodeStatus() == NodeStatus::WrongNameInEms*/) && // Wrong name should not trigger parent import
 				   ((childNode1->rowCount() > 0 &&
 					 childNode1->itemType() == "F_Placeholder" &&
 					 childNode1->nodeType() == NodeType::TCeNode) ||
@@ -298,11 +311,12 @@ void EbomCompareView::compareChildren(QStandardItem *item1, QStandardItem *item2
 		}
 	}
 
-	if(item1->rowCount() > 1 &&
+    // Decision was made to import individual DSs so that re-running failed items would not cause re-import of whole PH
+    /*if(item1->rowCount() > 1 &&
 	   numOfChildrenWithWrongRev > 1 &&
 	   (double)numOfChildrenWithWrongRev/(double)item1->rowCount() > 0.1) { //If more than 10% of children needs to be imported - import parent instead
 		parentNeedsToBeImported = true;
-	}
+    }*/
 
 	for(int rowNumberItem2 = 0; rowNumberItem2 < item2->rowCount(); rowNumberItem2++) {
 		Node *childNode2 = (Node *)item2->child(rowNumberItem2);
@@ -319,8 +333,8 @@ void EbomCompareView::compareChildren(QStandardItem *item1, QStandardItem *item2
 		   childNode2->nodeStatus() == NodeStatus::WrongRevisionInEms) {
 			hasChildrenToImport = true;
 		} else if ((childNode2->nodeStatus() == NodeStatus::NotInEms ||
-					childNode2->nodeStatus() == NodeStatus::NotInTCe ||
-					childNode2->nodeStatus() == NodeStatus::WrongNameInEms) &&
+                    childNode2->nodeStatus() == NodeStatus::NotInTCe /*||
+                    childNode2->nodeStatus() == NodeStatus::WrongNameInEms*/) && // Wrong name should not trigger parent import
 				   ((childNode2->rowCount() > 0 &&
 					 childNode2->itemType() == "F_Placeholder" &&
 					 childNode2->nodeType() == NodeType::TCeNode) ||
@@ -394,7 +408,8 @@ void EbomCompareView::resetCurrentAndChildren(QStandardItem *item)
 int EbomCompareView::getNumOfLeafNodesToBeImported(QStandardItem *item)
 {
 	if(item != modelTeamcenter->invisibleRootItem() && item->checkState() == Qt::Checked) {
-		return ((Node *)item)->numOfChildLeafNodes();
+        int numOfChildLeafNodes = ((Node *)item)->numOfChildLeafNodes();
+        return numOfChildLeafNodes > 0 ? numOfChildLeafNodes : 1;
 	}
 
 	else {
