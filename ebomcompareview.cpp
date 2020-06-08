@@ -856,7 +856,7 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(
 				childrenExternalIds = rowToList[childrenPartExternalIdColumnIndex].value<QString>().remove("\"").trimmed();
 		int revision = rowToList[tceRevisionColumnIndex].value<QString>().toInt();
 
-		if(externalId.isEmpty() || caption.isEmpty() || revision == 0) {continue;}
+        if(externalId.isEmpty() || caption.isEmpty() /*|| revision == 0*/) {continue;}
 
         if(caption.startsWith("''")) {
             caption = caption.right(caption.length() - 2);

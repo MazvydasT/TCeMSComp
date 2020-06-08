@@ -35,4 +35,4 @@ RC_ICONS = icon.ico
 
 QMAKE_TARGET_DESCRIPTION = "CC import delta config file generator. For use with eMS 14.1 and TCe 11.5"
 
-VERSION = 1.5.0.0
+VERSION = 1.5.1.0
