@@ -362,6 +362,13 @@
              </property>
             </spacer>
            </item>
+           <item>
+            <widget class="QCheckBox" name="selectPHCheckBox">
+             <property name="text">
+              <string>Select PHs</string>
+             </property>
+            </widget>
+           </item>
           </layout>
          </item>
          <item>

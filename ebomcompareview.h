@@ -36,7 +36,7 @@ public:
 
     QTabWidget *parentTabWidget = 0;
 
-    bool statusOK(){return mProjectIdOK&mNodeTreesOK;}
+    bool statusOK(){return mProjectIdOK & mNodeTreesOK;}
 
     void exportPairs(QStandardItem *item, QHash<QString, QString> *outputHash);
     QHash<QString, QString> exportParams();
@@ -44,7 +44,6 @@ public:
     QStandardItemModel *getModelTeamcenter() {return modelTeamcenter;}
 
 private slots:
-    void on_pushButtonTce_clicked();
 
     void on_pushButton_clicked();
 
@@ -60,6 +59,10 @@ private slots:
     void on_treeViewTeamcenter_customContextMenuRequested(const QPoint &pos);
 
     void onItemChanged(QStandardItem *item);
+
+    void on_selectPHCheckBox_stateChanged(int arg1);
+
+    void on_pushButtonTce_clicked();
 
 private:
     Ui::EbomCompareView *ui;
@@ -87,13 +90,15 @@ private:
 
     void buildEBOMTree(QList<QStandardItem *> (EbomCompareView::*fn)(QString, qint64 *, QProgressBar *), QString pathToExtract, QStandardItemModel *model, QQueue<QFutureWatcher<QList<QStandardItem *>> *> *queueFutureWatcher, qint64 *timeStamp, QProgressBar *progressBar);
 
-    void compareChildren(QStandardItem *item1, QStandardItem *item2);
+    void compareChildren(QStandardItem *item1, QStandardItem *item2, bool selectPHs);
 
     void deselectCurrentAndChildren(QStandardItem *item);
 
     void resetCurrentAndChildren(QStandardItem *item);
 
     int getNumOfLeafNodesToBeImported(QStandardItem *item);
+
+    Node *cloneNodeTree(Node *node);
 
 signals:
     void checkStatus();
