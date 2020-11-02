@@ -97,7 +97,7 @@ QHash<QString, QString> EbomCompareView::exportParams()
 void EbomCompareView::on_pushButtonTce_clicked()
 {
     buildEBOMTree(&EbomCompareView::buildEBOMTreeFromTeamcenterExtract,
-                  QFileDialog::getOpenFileName(this, "Load extract from TCe", "", "TCe Extract (*.txt);;All files (*)"),
+                  QFileDialog::getOpenFileName(this, "Load extract from TCe", "", "TCe Extract (*.txt)"),
                   modelTeamcenter,
                   &mQueueFutureWatcherTeamcenter,
                   &teamcenterTimeStamp,
@@ -107,7 +107,7 @@ void EbomCompareView::on_pushButtonTce_clicked()
 void EbomCompareView::on_pushButton_clicked()
 {
     buildEBOMTree(&EbomCompareView::buildEBOMTreeFromProcessDesignerExtract,
-                  QFileDialog::getOpenFileName(this, "Load extract from eMS", "", "Excel 97-2003 Workbook (*.xls);;All files (*)"),
+                  QFileDialog::getOpenFileName(this, "Load extract from eMS", "", "eM-Planner data (*.xml);;Excel 97-2003 Workbook (*.xls)"),
                   modelProcessDesigner,
                   &mQueueFutureWatcherProcessDesigner,
                   &processDesignerTimeStamp,
@@ -347,7 +347,7 @@ void EbomCompareView::compareChildren(QStandardItem *item1, QStandardItem *item2
             hasChildrenToImport = true;
         } else if ((childNode2->nodeStatus() == NodeStatus::NotInEms ||
                     childNode2->nodeStatus() == NodeStatus::NotInTCe ||
-                    (childNode2->nodeStatus() == NodeStatus::WrongNameInEms && selectPHs)) && // Wrong name should trigger parent import if PH selecten is enabled
+                    (childNode2->nodeStatus() == NodeStatus::WrongNameInEms && selectPHs)) && // Wrong name should trigger parent import if PH selection is enabled
                    ((childNode2->rowCount() > 0 &&
                      childNode2->itemType() == "F_Placeholder" &&
                      childNode2->nodeType() == NodeType::TCeNode) ||
@@ -673,10 +673,10 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QStri
         if(!bomLineRegExp.exactMatch(line)) {continue;}
 
         int level = bomLineRegExp.cap(1).toInt(),// - 1,
-                revision = bomLineRegExp.cap(indexOf_bl_rev_item_revision_id + 2).toInt();
+                revision = bomLineRegExp.cap(indexOf_bl_rev_item_revision_id + 2).trimmed().toInt();
 
-        QString id = bomLineRegExp.cap(indexOf_bl_item_item_id + 2),
-                name = bomLineRegExp.cap(indexOf_bl_rev_object_name + 2),
+        QString id = bomLineRegExp.cap(indexOf_bl_item_item_id + 2).trimmed(),
+                name = bomLineRegExp.cap(indexOf_bl_rev_object_name + 2).trimmed(),
                 itemType = bomLineRegExp.cap(indexOf_bl_item_object_type + 2),
                 lastModUser = bomLineRegExp.cap(indexOf_bl_last_mod_user + 2);
 
@@ -768,57 +768,200 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(
 
     int maxProcessDesignerProgressbarValue = progressBarToUpdate->maximum();
 
-    if(!SUCCEEDED(CoInitializeEx(NULL, COINIT_MULTITHREADED))) {return QList<QStandardItem *>();}
+    QVariantList usedRangeValues;
 
-    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*1)/12));
+    if(pathToProcessDesignerExtract.endsWith(".xml", Qt::CaseInsensitive))
+    {
+        usedRangeValues << QVariant(QVariantList() << "externalID" << "caption" << "children: Part: externalID" << "TCe_Revision");
 
-    QScopedPointer<QAxObject> excelApplication(new QAxObject);
+        QFile xmlFile(pathToProcessDesignerExtract);
 
-    if(!excelApplication->setControl("Excel.Application")) {return QList<QStandardItem *>();}
+        if(xmlFile.exists() && xmlFile.open(QFile::ReadOnly|QFile::Text))
+        {
+            QXmlStreamReader xmlReader(&xmlFile);
 
-    excelApplication->setProperty("Visible", false);
+            QMap<QString,QStringList> catalogNumbersAndRevisionsByPrototypeId;
+            QList<QStringList> partInformationSet;
 
-    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*2)/12));
+            auto fileSize = xmlFile.size();
 
-    QScopedPointer<QAxObject> workbooks(excelApplication->querySubObject("Workbooks"));
+            while (!xmlReader.atEnd()) {
+                QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*xmlFile.pos())/fileSize));
 
-    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*3)/12));
+                if(xmlReader.readNext() != xmlReader.StartElement) continue;
 
-    QScopedPointer<QAxObject> workbook(workbooks->querySubObject("Open(const QString&)", pathToProcessDesignerExtract));
+                auto elementName = xmlReader.name();
 
-    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*4)/12));
+                if(elementName == "Data" || elementName == "Objects") continue;
 
-    QScopedPointer<QAxObject> worksheets(workbook->querySubObject("Worksheets"));
+                if(elementName != "PmCompoundPart" && elementName != "PmPartInstance" && elementName != "PmPartPrototype")
+                {
+                    xmlReader.skipCurrentElement();
 
-    if(worksheets->dynamicCall("Count").toInt() < 1) {return QList<QStandardItem *>();}
+                    continue;
+                }
 
-    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*5)/12));
+                QDomDocument document;
+                auto outerXML = Utils::readOuterXML(&xmlReader);
+                document.setContent(outerXML);
 
-    QScopedPointer<QAxObject> worksheet(workbook->querySubObject("Worksheets(int)",1));
+                auto element = document.documentElement();
 
-    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*6)/12));
+                auto externalId = element.attribute("ExternalId");
 
-    QScopedPointer<QAxObject> usedRange(worksheet->querySubObject("UsedRange"));
+                if(externalId.isEmpty()) continue;
 
-    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*7)/12));
+                QString revision;
 
-    QScopedPointer<QAxObject> usedRangeCells(usedRange->querySubObject("Cells"));
+                if(elementName == "PmPartPrototype" || elementName == "PmCompoundPart")
+                {
+                    revision = element.firstChildElement("TCe_Revision").text();
+                }
 
-    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*8)/12));
+                if(elementName == "PmPartPrototype")
+                {
+                    auto catalogNumber = element.firstChildElement("catalogNumber").text();
 
-    QVariantList usedRangeValues = usedRangeCells->property("Value").toList();
+                    if(!catalogNumber.isEmpty())
+                    {
+                        QStringList values = { catalogNumber, revision };
+                        catalogNumbersAndRevisionsByPrototypeId[externalId] = values;
+                    }
 
-    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*9)/12));
+                    continue;
+                }
 
-    workbook->dynamicCall("Close");
+                auto name = element.firstChildElement("name").text();
 
-    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*10)/12));
+                QString number, childredIds;
 
-    excelApplication->dynamicCall("Quit()");
+                if(elementName == "PmCompoundPart")
+                {
+                    number = element.firstChildElement("number").text();
 
-    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*11)/12));
+                    auto itemNodes = element.firstChildElement("children").childNodes();
+                    auto itemNodesCount = itemNodes.count();
 
-    CoUninitialize();
+                    if(itemNodesCount > 0)
+                    {
+                        QStringList chilrenIdList;
+                        chilrenIdList.reserve(itemNodesCount);
+
+                        for(int i = 0; i < itemNodesCount; ++i)
+                        {
+                            chilrenIdList << itemNodes.item(i).toElement().text();
+                        }
+
+                        childredIds = "\"" + chilrenIdList.join(";") + "\"";
+                    }
+                }
+
+                QStringList partValues = { elementName.toString(), externalId, number, name, childredIds, revision, nullptr };;
+
+                if(elementName == "PmPartInstance")
+                {
+                    auto prototype = element.firstChildElement("prototype").text();
+
+                    if(prototype.isEmpty()) continue;
+
+                    partValues[6] = prototype;
+                }
+
+                partInformationSet << partValues;
+            }
+
+
+            auto partInformationSetCount = partInformationSet.count();
+
+            usedRangeValues.reserve(partInformationSetCount + 1);
+
+            for(int i = 0; i < partInformationSetCount; ++i)
+            {
+                auto partInformation = partInformationSet[i];
+
+                auto partType = partInformation[0];
+                auto externalId = partInformation[1];
+                auto number = partInformation[2];
+                auto name = partInformation[3];
+                auto childredIds = partInformation[4];
+                auto revision = partInformation[5];
+
+                if(partType == "PmPartInstance")
+                {
+                    auto prototypeId = partInformation[6];
+
+                    if(!catalogNumbersAndRevisionsByPrototypeId.contains(prototypeId)) continue;
+
+                    auto prototypeValues = catalogNumbersAndRevisionsByPrototypeId[prototypeId];
+
+                    number = prototypeValues[0];
+                    revision = prototypeValues[1];
+                }
+
+                if(number.startsWith("PRG", Qt::CaseInsensitive)) continue;
+
+                auto caption = QString("'%1' - '%2'").arg(number, name);
+
+                QStringList rowValues = { externalId, caption, childredIds, revision };
+                usedRangeValues << rowValues;
+            }
+        }
+    }
+
+    else
+    {
+        if(!SUCCEEDED(CoInitializeEx(NULL, COINIT_MULTITHREADED))) {return QList<QStandardItem *>();}
+
+        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*1)/12));
+
+        QScopedPointer<QAxObject> excelApplication(new QAxObject);
+
+        if(!excelApplication->setControl("Excel.Application")) {return QList<QStandardItem *>();}
+
+        excelApplication->setProperty("Visible", false);
+
+        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*2)/12));
+
+        QScopedPointer<QAxObject> workbooks(excelApplication->querySubObject("Workbooks"));
+
+        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*3)/12));
+
+        QScopedPointer<QAxObject> workbook(workbooks->querySubObject("Open(const QString&)", pathToProcessDesignerExtract));
+
+        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*4)/12));
+
+        QScopedPointer<QAxObject> worksheets(workbook->querySubObject("Worksheets"));
+
+        if(worksheets->dynamicCall("Count").toInt() < 1) {return QList<QStandardItem *>();}
+
+        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*5)/12));
+
+        QScopedPointer<QAxObject> worksheet(workbook->querySubObject("Worksheets(int)",1));
+
+        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*6)/12));
+
+        QScopedPointer<QAxObject> usedRange(worksheet->querySubObject("UsedRange"));
+
+        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*7)/12));
+
+        QScopedPointer<QAxObject> usedRangeCells(usedRange->querySubObject("Cells"));
+
+        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*8)/12));
+
+        usedRangeValues = usedRangeCells->property("Value").toList();
+
+        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*9)/12));
+
+        workbook->dynamicCall("Close");
+
+        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*10)/12));
+
+        excelApplication->dynamicCall("Quit()");
+
+        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*11)/12));
+
+        CoUninitialize();
+    }
 
     QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, maxProcessDesignerProgressbarValue/4));
 
@@ -867,7 +1010,7 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(
         QString externalId = rowToList[externalIdColumnIndex].value<QString>().trimmed(),
                 caption = rowToList[captionColumnIndex].value<QString>().trimmed(),
                 childrenExternalIds = rowToList[childrenPartExternalIdColumnIndex].value<QString>().remove("\"").trimmed();
-        int revision = rowToList[tceRevisionColumnIndex].value<QString>().toInt();
+        int revision = rowToList[tceRevisionColumnIndex].value<QString>().trimmed().toInt();
 
         if(externalId.isEmpty() || caption.isEmpty() /*|| revision == 0*/) {continue;}
 
@@ -880,13 +1023,15 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(
         QString id = "", name = "";
         if(idAndName.length() == 2) {
             id = idAndName[0].trimmed();
-            id = id.right(id.length() - 1);
+            id = id.right(id.length() - 1).trimmed();
 
             name = idAndName[1].trimmed();
-            name = name.left(name.length() - 1);
+            name = name.left(name.length() - 1).trimmed();
         }
 
-        else {continue;}
+        else {
+            continue;
+        }
 
         QStringList childrenExternalIdsList;
 
@@ -922,7 +1067,8 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(
                 if(currentNode != 0 && currentNode->id().startsWith("PH", Qt::CaseInsensitive)) {
                     Node *childNode = nodesArray[childNodeIndex];
 
-                    if(repeatedNodeCheckList.contains(childNode)) {
+                    if(repeatedNodeCheckList.contains(childNode))
+                    {
                         Node *tempNode = new Node(childNode->nodeType(), childNode->id(), childNode->name(), childNode->revision());
                         tempNode->setCaption(childNode->caption());
                         tempNode->setExternalId(childNode->externalId());

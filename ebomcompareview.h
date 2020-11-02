@@ -14,6 +14,7 @@
 #include <QSettings>
 #include <QSharedPointer>
 #include <QtConcurrent>
+#include <QDomDocument>
 #include <QTreeView>
 #include <QVector>
 
@@ -21,6 +22,7 @@
 #include <functional>
 
 #include "node.h"
+#include "utils.h"
 
 namespace Ui {
 class EbomCompareView;
