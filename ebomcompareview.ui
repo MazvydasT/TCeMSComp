@@ -367,6 +367,9 @@
              <property name="text">
               <string>Select PHs</string>
              </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
             </widget>
            </item>
           </layout>
