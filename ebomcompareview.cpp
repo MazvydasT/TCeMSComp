@@ -17,11 +17,11 @@ EbomCompareView::EbomCompareView(QWidget *parent) :
     ui->treeViewTeamcenter->sortByColumn(0, Qt::AscendingOrder);
     ui->treeVieweProcessDesigner->sortByColumn(0, Qt::AscendingOrder);
 
-    connect(ui->treeViewTeamcenter->header(), &QHeaderView::sortIndicatorChanged,[this](){
+    emsScrollConnection = connect(ui->treeViewTeamcenter->header(), &QHeaderView::sortIndicatorChanged,[this](){
         ui->treeVieweProcessDesigner->sortByColumn(0, ui->treeViewTeamcenter->header()->sortIndicatorOrder());
     });
 
-    connect(ui->treeVieweProcessDesigner->header(), &QHeaderView::sortIndicatorChanged,[this](){
+    tceScrollConnection = connect(ui->treeVieweProcessDesigner->header(), &QHeaderView::sortIndicatorChanged,[this](){
         ui->treeViewTeamcenter->sortByColumn(0, ui->treeVieweProcessDesigner->header()->sortIndicatorOrder());
     });
 
@@ -41,15 +41,45 @@ EbomCompareView::EbomCompareView(QWidget *parent) :
     ui->treeVieweProcessDesigner->setModel(modelProcessDesigner);
 
     connect(modelTeamcenter, SIGNAL(itemChanged(QStandardItem*)), this, SLOT(onItemChanged(QStandardItem*)));
+
+    connect(this, &EbomCompareView::updateEMSProgress, this->ui->progressBarProcessDesigner, &QProgressBar::setValue);
+    connect(this, &EbomCompareView::updateTCeProgress, this->ui->progressBarTeamcenter, &QProgressBar::setValue);
+
+    tceFutureWatcherConnection = connect(&tceFutureWatcher, &QFutureWatcher<QList<QStandardItem *>>::finished, [this](){
+        delete tceCancellationToken;
+        tceCancellationToken = NULL;
+        modelReplaceChildren(tceFutureWatcher.result(), modelTeamcenter);
+    });
+
+    emsFutureWatcherConnection = connect(&emsFutureWatcher, &QFutureWatcher<QList<QStandardItem *>>::finished, [this](){
+        delete emsCancellationToken;
+        emsCancellationToken = NULL;
+        modelReplaceChildren(emsFutureWatcher.result(), modelProcessDesigner);
+    });
 }
 
 EbomCompareView::~EbomCompareView()
 {
-    processDesignerTimeStamp = 0;
-    teamcenterTimeStamp = 0;
+    if(tceCancellationToken != NULL) {
+        tceCancellationToken->cancel();
+        tceFutureWatcher.waitForFinished();
+    }
 
-    qDeleteAll(mQueueFutureWatcherTeamcenter);
-    qDeleteAll(mQueueFutureWatcherProcessDesigner);
+    if(emsCancellationToken != NULL) {
+        emsCancellationToken->cancel();
+        emsFutureWatcher.waitForFinished();
+    }
+
+    disconnect(tceScrollConnection);
+    disconnect(emsScrollConnection);
+    disconnect(tceFutureWatcherConnection);
+    disconnect(emsFutureWatcherConnection);
+
+    //processDesignerTimeStamp = 0;
+    //teamcenterTimeStamp = 0;
+
+    //qDeleteAll(mQueueFutureWatcherTeamcenter);
+    //qDeleteAll(mQueueFutureWatcherProcessDesigner);
 
     delete modelTeamcenter;
     delete modelProcessDesigner;
@@ -98,20 +128,14 @@ void EbomCompareView::on_pushButtonTce_clicked()
 {
     buildEBOMTree(&EbomCompareView::buildEBOMTreeFromTeamcenterExtract,
                   QFileDialog::getOpenFileName(this, "Load extract from TCe", "", "TCe Extract (*.txt)"),
-                  modelTeamcenter,
-                  &mQueueFutureWatcherTeamcenter,
-                  &teamcenterTimeStamp,
-                  ui->progressBarTeamcenter);
+                  modelTeamcenter);
 }
 
 void EbomCompareView::on_pushButton_clicked()
 {
     buildEBOMTree(&EbomCompareView::buildEBOMTreeFromProcessDesignerExtract,
                   QFileDialog::getOpenFileName(this, "Load extract from eMS", "", "eM-Planner data (*.xml);;Excel 97-2003 Workbook (*.xls)"),
-                  modelProcessDesigner,
-                  &mQueueFutureWatcherProcessDesigner,
-                  &processDesignerTimeStamp,
-                  ui->progressBarProcessDesigner);
+                  modelProcessDesigner);
 }
 
 void EbomCompareView::monitorQueue(QQueue<QFutureWatcher<QList<QStandardItem *>> *> *mQueueFutureWatcher, QStandardItemModel *model)
@@ -153,7 +177,7 @@ void EbomCompareView::monitorQueue(QQueue<QFutureWatcher<QList<QStandardItem *>>
     });
 }
 
-void EbomCompareView::buildEBOMTree(QList<QStandardItem *> (EbomCompareView::*fn)(QString, qint64 *, QProgressBar *), QString pathToExtract, QStandardItemModel *model, QQueue<QFutureWatcher<QList<QStandardItem *>> *> *queueFutureWatcher, qint64 *timeStamp, QProgressBar *progressBar)
+void EbomCompareView::buildEBOMTree(QList<QStandardItem *> (EbomCompareView::*fn)(QString, CancellationToken *), QString pathToExtract, QStandardItemModel *model)
 {
     if(pathToExtract.isEmpty()) {return;}
 
@@ -168,7 +192,7 @@ void EbomCompareView::buildEBOMTree(QList<QStandardItem *> (EbomCompareView::*fn
 
     parentTabWidget->setTabText(parentTabWidget->indexOf(this), "Tab");
 
-    auto futureWatcherTeamcenter = new QFutureWatcher<QList<QStandardItem *>>();
+    /*auto futureWatcherTeamcenter = new QFutureWatcher<QList<QStandardItem *>>();
 
     queueFutureWatcher->append(futureWatcherTeamcenter);
 
@@ -176,7 +200,29 @@ void EbomCompareView::buildEBOMTree(QList<QStandardItem *> (EbomCompareView::*fn
 
     *timeStamp = QDateTime::currentDateTime().toMSecsSinceEpoch();
 
-    futureWatcherTeamcenter->setFuture(QtConcurrent::run(this, fn, pathToExtract, timeStamp, progressBar));
+    futureWatcherTeamcenter->setFuture(QtConcurrent::run(this, fn, pathToExtract, timeStamp, progressBar));*/
+
+    if(model == modelTeamcenter)
+    {
+        if(tceCancellationToken != NULL) {
+            tceCancellationToken->cancel();
+            tceFutureWatcher.waitForFinished();
+        }
+
+        tceCancellationToken = new CancellationToken();
+        tceFutureWatcher.setFuture(QtConcurrent::run(this, fn, pathToExtract, tceCancellationToken));
+    }
+
+    else
+    {
+        if(emsCancellationToken != NULL) {
+            emsCancellationToken->cancel();
+            emsFutureWatcher.waitForFinished();
+        }
+
+        emsCancellationToken = new CancellationToken();
+        emsFutureWatcher.setFuture(QtConcurrent::run(this, fn, pathToExtract, emsCancellationToken));
+    }
 }
 
 void EbomCompareView::compareChildren(QStandardItem *item1, QStandardItem *item2, bool selectPHs)
@@ -470,7 +516,10 @@ void EbomCompareView::onTreeViewExpandedCollapsed(const QModelIndex &index)
 void EbomCompareView::modelReplaceChildren(QList<QStandardItem *> newChildren, QStandardItemModel *model)
 {
     mUpdateStats = false;
-    model->removeRows(0, model->rowCount());
+    for(int i = model->rowCount() - 1; i >= 0; --i)
+    {
+        qDeleteAll(model->takeRow(i));
+    }
     mUpdateStats = true;
 
     model->appendRow(newChildren);
@@ -544,13 +593,13 @@ void EbomCompareView::on_lineEditProjectId_textChanged(const QString &arg1)
     emit checkStatus();
 }
 
-QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QString pathToTeamcenterExtract, qint64 *referenceTimeStamp, QProgressBar *progressBarToUpdate)
+QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QString pathToTeamcenterExtract, CancellationToken *cancellationToken)
 {
-    qint64 timeStamp = *referenceTimeStamp;
+    auto emptyResult = QList<QStandardItem *>();
 
     qint64 lastFilePos = 0, teamcenterExtractFileSize = 0;
     int lastTeamcenterProgressBarValue = 0,
-            maxTeamcenterProgressBarValue = progressBarToUpdate->maximum();
+            maxTeamcenterProgressBarValue = 300;
 
     QList<QStandardItem *> teamcenterTree;
 
@@ -575,11 +624,13 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QStri
             indexOf_bl_last_mod_user = -1;
 
     for(int counter = 1; counter < 3; counter++) {
+        if(cancellationToken != NULL && cancellationToken->isCancellationRequested()) return emptyResult;
+
         if(!teamcenterExtractTextStream.atEnd()) {
             teamcenterExtractTextStream.readLine();
         }
 
-        else {return QList<QStandardItem *>();}
+        else { return emptyResult; }
     }
 
     if(!teamcenterExtractTextStream.atEnd()) {
@@ -606,17 +657,21 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QStri
     if(delimiter.length() < 1) {return QList<QStandardItem *>();}
 
     for(int counter = 1; counter < 3; counter++) {
+        if(cancellationToken != NULL && cancellationToken->isCancellationRequested()) return emptyResult;
+
         if(!teamcenterExtractTextStream.atEnd()) {
             teamcenterExtractTextStream.readLine();
         }
 
-        else {return QList<QStandardItem *>();}
+        else { return emptyResult; }
     }
 
     QString bomLineRegExpPattern = "(\\d+)" + delimiter + "\\s"; //level
 
     int paramsLength = params.length();
     for(int index = 0; index < paramsLength; index++) {
+        if(cancellationToken != NULL && cancellationToken->isCancellationRequested()) return emptyResult;
+
         if(index == indexOf_bl_item_item_id ||
                 index == indexOf_bl_rev_object_name ||
                 index == indexOf_bl_item_object_type ||
@@ -646,10 +701,11 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QStri
     bool rootNodeIsFProgram = false;
 
     while(!teamcenterExtractTextStream.atEnd()) {
-        if(timeStamp != *referenceTimeStamp) {
+        if(cancellationToken != NULL && cancellationToken->isCancellationRequested()) {
             qDeleteAll(teamcenterTree);
+            qDeleteAll(nodesToDelete);
 
-            return QList<QStandardItem *>();
+            return emptyResult;
         }
 
         qint64 teamcenterExtractFilePos = teamcenterExtractFile.pos();
@@ -664,7 +720,8 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QStri
             {
                 lastTeamcenterProgressBarValue = newTeamcenterProgressBarValue;
 
-                QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, lastTeamcenterProgressBarValue));
+                //QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, lastTeamcenterProgressBarValue));
+                emit updateTCeProgress(lastTeamcenterProgressBarValue);
             }
         }
 
@@ -749,7 +806,8 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QStri
 
     qDeleteAll(nodesToDelete);
 
-    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, maxTeamcenterProgressBarValue));
+    //QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, maxTeamcenterProgressBarValue));
+    emit updateTCeProgress(maxTeamcenterProgressBarValue);
 
     QMetaObject::invokeMethod(ui->textEditWrongItemTypeLog, "clear", Qt::QueuedConnection);
     if(!wrongItemTypeAccumulator.isEmpty()) {
@@ -760,13 +818,13 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromTeamcenterExtract(QStri
     return teamcenterTree;
 }
 
-QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(QString pathToProcessDesignerExtract, qint64 *referenceTimeStamp, QProgressBar *progressBarToUpdate)
+QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(QString pathToProcessDesignerExtract, CancellationToken *cancellationToken)
 {
-    qint64 timeStamp = *referenceTimeStamp;
+    auto emptyResult = QList<QStandardItem *>();
 
-    if(pathToProcessDesignerExtract.isEmpty() || !QFile::exists(pathToProcessDesignerExtract)) {return QList<QStandardItem *>();}
+    if(pathToProcessDesignerExtract.isEmpty() || !QFile::exists(pathToProcessDesignerExtract)) { return emptyResult; }
 
-    int maxProcessDesignerProgressbarValue = progressBarToUpdate->maximum();
+    int maxProcessDesignerProgressbarValue = 300;
 
     QVariantList usedRangeValues;
 
@@ -786,7 +844,10 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(
             auto fileSize = xmlFile.size();
 
             while (!xmlReader.atEnd()) {
-                QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*xmlFile.pos())/fileSize));
+                if(cancellationToken != NULL && cancellationToken->isCancellationRequested()) return emptyResult;
+
+                //QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*xmlFile.pos())/fileSize));
+                emit updateEMSProgress(((maxProcessDesignerProgressbarValue/4)*xmlFile.pos())/fileSize);
 
                 if(xmlReader.readNext() != xmlReader.StartElement) continue;
 
@@ -877,6 +938,8 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(
 
             for(int i = 0; i < partInformationSetCount; ++i)
             {
+                if(cancellationToken != NULL && cancellationToken->isCancellationRequested()) return emptyResult;
+
                 auto partInformation = partInformationSet[i];
 
                 auto partType = partInformation[0];
@@ -912,7 +975,8 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(
     {
         if(!SUCCEEDED(CoInitializeEx(NULL, COINIT_MULTITHREADED))) {return QList<QStandardItem *>();}
 
-        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*1)/12));
+        //QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*1)/12));
+        emit updateEMSProgress(((maxProcessDesignerProgressbarValue/4)*1)/12);
 
         QScopedPointer<QAxObject> excelApplication(new QAxObject);
 
@@ -920,70 +984,83 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(
 
         excelApplication->setProperty("Visible", false);
 
-        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*2)/12));
+        //QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*2)/12));
+        emit updateEMSProgress(((maxProcessDesignerProgressbarValue/4)*2)/12);
 
         QScopedPointer<QAxObject> workbooks(excelApplication->querySubObject("Workbooks"));
 
-        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*3)/12));
+        //QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*3)/12));
+        emit updateEMSProgress(((maxProcessDesignerProgressbarValue/4)*3)/12);
 
         QScopedPointer<QAxObject> workbook(workbooks->querySubObject("Open(const QString&)", pathToProcessDesignerExtract));
 
-        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*4)/12));
+        //QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*4)/12));
+        emit updateEMSProgress(((maxProcessDesignerProgressbarValue/4)*4)/12);
 
         QScopedPointer<QAxObject> worksheets(workbook->querySubObject("Worksheets"));
 
         if(worksheets->dynamicCall("Count").toInt() < 1) {return QList<QStandardItem *>();}
 
-        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*5)/12));
+        //QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*5)/12));
+        emit updateEMSProgress(((maxProcessDesignerProgressbarValue/4)*5)/12);
 
         QScopedPointer<QAxObject> worksheet(workbook->querySubObject("Worksheets(int)",1));
 
-        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*6)/12));
+        //QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*6)/12));
+        emit updateEMSProgress(((maxProcessDesignerProgressbarValue/4)*6)/12);
 
         QScopedPointer<QAxObject> usedRange(worksheet->querySubObject("UsedRange"));
 
-        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*7)/12));
+        //QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*7)/12));
+        emit updateEMSProgress(((maxProcessDesignerProgressbarValue/4)*7)/12);
 
         QScopedPointer<QAxObject> usedRangeCells(usedRange->querySubObject("Cells"));
 
-        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*8)/12));
+        //QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*8)/12));
+        emit updateEMSProgress(((maxProcessDesignerProgressbarValue/4)*8)/12);
 
         usedRangeValues = usedRangeCells->property("Value").toList();
 
-        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*9)/12));
+        //QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*9)/12));
+        emit updateEMSProgress(((maxProcessDesignerProgressbarValue/4)*9)/12);
 
         workbook->dynamicCall("Close");
 
-        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*10)/12));
+        //QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*10)/12));
+        emit updateEMSProgress(((maxProcessDesignerProgressbarValue/4)*10)/12);
 
         excelApplication->dynamicCall("Quit()");
 
-        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*11)/12));
+        //QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, ((maxProcessDesignerProgressbarValue/4)*11)/12));
+        emit updateEMSProgress(((maxProcessDesignerProgressbarValue/4)*11)/12);
 
         CoUninitialize();
+
+        if(cancellationToken != NULL && cancellationToken->isCancellationRequested()) return emptyResult;
     }
 
-    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, maxProcessDesignerProgressbarValue/4));
+    //QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, maxProcessDesignerProgressbarValue/4));
+    emit updateEMSProgress(maxProcessDesignerProgressbarValue/4);
 
     //###########################################
 
-    if(timeStamp != *referenceTimeStamp) {return QList<QStandardItem *>();}
+    //if(timeStamp != *referenceTimeStamp) {return QList<QStandardItem *>();}
 
     int tceRevisionColumnIndex = -1, captionColumnIndex = -1, childrenPartExternalIdColumnIndex = -1, externalIdColumnIndex = -1;
 
     QVariantList emsExtractHeaderData = usedRangeValues.takeFirst().toList();
 
     if(emsExtractHeaderData.contains("TCe_Revision")) tceRevisionColumnIndex = emsExtractHeaderData.indexOf("TCe_Revision");
-    else return QList<QStandardItem *>();
+    else return emptyResult;
 
     if(emsExtractHeaderData.contains("caption")) captionColumnIndex = emsExtractHeaderData.indexOf("caption");
-    else return QList<QStandardItem *>();
+    else return emptyResult;
 
     if(emsExtractHeaderData.contains("children: Part: externalID")) childrenPartExternalIdColumnIndex = emsExtractHeaderData.indexOf("children: Part: externalID");
-    else return QList<QStandardItem *>();
+    else return emptyResult;
 
     if(emsExtractHeaderData.contains("externalID")) externalIdColumnIndex = emsExtractHeaderData.indexOf("externalID");
-    else return QList<QStandardItem *>();
+    else return emptyResult;
 
     //###########################################
 
@@ -1005,6 +1082,12 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(
     externalIdAndIndexHash.reserve(usedRangeValuesLength);
 
     for(int index = 0; index < usedRangeValuesLength; index++) {
+        if(cancellationToken != NULL && cancellationToken->isCancellationRequested())
+        {
+            qDeleteAll(nodesArray);
+            return emptyResult;
+        }
+
         QVariantList rowToList = usedRangeValues[index].toList();
 
         QString externalId = rowToList[externalIdColumnIndex].value<QString>().trimmed(),
@@ -1050,16 +1133,29 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(
 
         externalIdAndIndexHash.insert(externalId, index);
 
-        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, maxProcessDesignerProgressbarValue/4 + ((maxProcessDesignerProgressbarValue/4) * index)/usedRangeValuesLength));
+        //QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, maxProcessDesignerProgressbarValue/4 + ((maxProcessDesignerProgressbarValue/4) * index)/usedRangeValuesLength));
+        emit updateEMSProgress(maxProcessDesignerProgressbarValue/4 + ((maxProcessDesignerProgressbarValue/4) * index)/usedRangeValuesLength);
     }
 
     QList<QStandardItem*> repeatedNodeCheckList;
 
     for(int index = 0; index < usedRangeValuesLength; index++) {
+        if(cancellationToken != NULL && cancellationToken->isCancellationRequested())
+        {
+            qDeleteAll(nodesArray);
+            return emptyResult;
+        }
+
         QStringList currentChildrenExternalIds = childrenExternalIdsArray[index];
         Node *currentNode = nodesArray[index];
 
         foreach (QString childExternalId, currentChildrenExternalIds) {
+            if(cancellationToken != NULL && cancellationToken->isCancellationRequested())
+            {
+                qDeleteAll(nodesArray);
+                return emptyResult;
+            }
+
             int childNodeIndex = externalIdAndIndexHash.value(childExternalId, -1);
 
             if(childNodeIndex > -1)
@@ -1082,33 +1178,40 @@ QList<QStandardItem *> EbomCompareView::buildEBOMTreeFromProcessDesignerExtract(
                 }
 
                 else {
-                    //delete nodesArray[childNodeIndex];
-                    //nodesArray[childNodeIndex] = 0;
-
+                    delete nodesArray[childNodeIndex];
                     nodesArray.replace(childNodeIndex, NULL);
                 }
             }
         }
 
-        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, 2*(maxProcessDesignerProgressbarValue/4) + ((maxProcessDesignerProgressbarValue/4) * index)/usedRangeValuesLength));
+        //QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, 2*(maxProcessDesignerProgressbarValue/4) + ((maxProcessDesignerProgressbarValue/4) * index)/usedRangeValuesLength));
+        emit updateEMSProgress(2*(maxProcessDesignerProgressbarValue/4) + ((maxProcessDesignerProgressbarValue/4) * index)/usedRangeValuesLength);
     }
 
     QList<QStandardItem *> processDesignerTree;
 
     for(int index = 0; index < usedRangeValuesLength; index++) {
+        if(cancellationToken != NULL && cancellationToken->isCancellationRequested())
+        {
+            qDeleteAll(nodesArray);
+            return emptyResult;
+        }
+
         Node *node = nodesArray[index];
 
         if(node != 0 && node->parent() == 0) {
             processDesignerTree.append(node);
         }
 
-        QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, 3*(maxProcessDesignerProgressbarValue/4) + ((maxProcessDesignerProgressbarValue/4) * index)/usedRangeValuesLength));
+        //QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, 3*(maxProcessDesignerProgressbarValue/4) + ((maxProcessDesignerProgressbarValue/4) * index)/usedRangeValuesLength));
+        emit updateEMSProgress(3*(maxProcessDesignerProgressbarValue/4) + ((maxProcessDesignerProgressbarValue/4) * index)/usedRangeValuesLength);
     }
 
     //delete [] nodesArray;
     //delete [] childrenExternalIdsArray;
 
-    QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, maxProcessDesignerProgressbarValue));
+    //QMetaObject::invokeMethod(progressBarToUpdate, "setValue", Q_ARG(int, maxProcessDesignerProgressbarValue));
+    emit updateEMSProgress(maxProcessDesignerProgressbarValue);
 
     return processDesignerTree;
 }
@@ -1175,7 +1278,12 @@ void EbomCompareView::on_selectPHCheckBox_stateChanged(int arg1)
         QList<QStandardItem*> newItems;
 
         for(int i = 0; i < rowCount; ++i) {
-            newItems << cloneNodeTree((Node*)tceInvisibleRootItem->child(i));
+            auto clonedItem = cloneNodeTree((Node*)tceInvisibleRootItem->child(i));
+
+            if(clonedItem != 0)
+            {
+                newItems << clonedItem;
+            }
         }
 
         modelReplaceChildren(newItems, modelTeamcenter);
@@ -1183,10 +1291,17 @@ void EbomCompareView::on_selectPHCheckBox_stateChanged(int arg1)
 }
 
 Node* EbomCompareView::cloneNodeTree(Node *node) {
+    if(node->nodeType() == NodeType::DummyType) return 0;
+
     auto newNode = new Node(node->nodeType(), node->id(), node->name(), node->revision());
 
     for(int i = 0, c = node->rowCount(); i < c; ++i) {
-        newNode->appendRow(cloneNodeTree((Node*)node->child(i)));
+        auto clonedItem = cloneNodeTree((Node*)node->child(i));
+
+        if(clonedItem != 0)
+        {
+            newNode->appendRow(clonedItem);
+        }
     }
 
     return newNode;

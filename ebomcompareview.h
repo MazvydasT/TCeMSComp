@@ -23,6 +23,7 @@
 
 #include "node.h"
 #include "utils.h"
+#include "cancellationtoken.h"
 
 namespace Ui {
 class EbomCompareView;
@@ -69,7 +70,9 @@ private slots:
 private:
     Ui::EbomCompareView *ui;
 
-    qint64 teamcenterTimeStamp = 0, processDesignerTimeStamp = 0;
+    //qint64 teamcenterTimeStamp = 0, processDesignerTimeStamp = 0;
+
+    //QWidget *tabToBeClosed = NULL;
 
     QSettings settings;
 
@@ -79,18 +82,24 @@ private:
 
     void setNumOfLeafNodesInTeamcenter();
 
-    QQueue<QFutureWatcher<QList<QStandardItem *>> *> mQueueFutureWatcherTeamcenter, mQueueFutureWatcherProcessDesigner;
+    //QQueue<QFutureWatcher<QList<QStandardItem *>> *> mQueueFutureWatcherTeamcenter, mQueueFutureWatcherProcessDesigner;
 
     QStandardItemModel *modelTeamcenter = 0, *modelProcessDesigner = 0;
 
 
-    QList<QStandardItem *>buildEBOMTreeFromTeamcenterExtract(QString pathToTeamcenterExtract, qint64 *referenceTimeStamp, QProgressBar *progressBarToUpdate);
+    CancellationToken *tceCancellationToken = NULL, *emsCancellationToken = NULL;
+    QFutureWatcher<QList<QStandardItem *>> tceFutureWatcher, emsFutureWatcher;
 
-    QList<QStandardItem *>buildEBOMTreeFromProcessDesignerExtract(QString pathToProcessDesignerExtract, qint64 *referenceTimeStamp, QProgressBar *progressBarToUpdate);
+    QMetaObject::Connection tceScrollConnection, emsScrollConnection, tceFutureWatcherConnection, emsFutureWatcherConnection;
+
+
+    QList<QStandardItem *>buildEBOMTreeFromTeamcenterExtract(QString pathToTeamcenterExtract, CancellationToken *cancellationToken = NULL);
+
+    QList<QStandardItem *>buildEBOMTreeFromProcessDesignerExtract(QString pathToProcessDesignerExtract, CancellationToken *cancellationToken = NULL);
 
     void monitorQueue(QQueue<QFutureWatcher<QList<QStandardItem *>> *> *mQueueFutureWatcher, QStandardItemModel *model);
 
-    void buildEBOMTree(QList<QStandardItem *> (EbomCompareView::*fn)(QString, qint64 *, QProgressBar *), QString pathToExtract, QStandardItemModel *model, QQueue<QFutureWatcher<QList<QStandardItem *>> *> *queueFutureWatcher, qint64 *timeStamp, QProgressBar *progressBar);
+    void buildEBOMTree(QList<QStandardItem *> (EbomCompareView::*fn)(QString, CancellationToken *), QString pathToExtract, QStandardItemModel *model);
 
     void compareChildren(QStandardItem *item1, QStandardItem *item2, bool selectPHs);
 
@@ -104,6 +113,8 @@ private:
 
 signals:
     void checkStatus();
+    void updateTCeProgress(int value);
+    void updateEMSProgress(int value);
 };
 
 #endif // EBOMCOMPAREVIEW_H

@@ -15,12 +15,14 @@ TEMPLATE = app
 
 
 SOURCES += main.cpp\
+    cancellationtoken.cpp \
     rootwindow.cpp \
     ebomcompareview.cpp \
     node.cpp \
     utils.cpp
 
 HEADERS  += \
+    cancellationtoken.h \
     rootwindow.h \
     ebomcompareview.h \
     node.h \
@@ -37,4 +39,4 @@ RC_ICONS = icon.ico
 
 QMAKE_TARGET_DESCRIPTION = "CC import delta config file generator. For use with eMS 14.1 and TCe 11.5"
 
-VERSION = 1.7.1.0
+VERSION = 1.8.0.0

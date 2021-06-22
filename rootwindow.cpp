@@ -24,7 +24,9 @@ RootWindow::~RootWindow()
 
 void RootWindow::on_tabWidget_tabCloseRequested(int index)
 {
-    delete ui->tabWidget->widget(index);
+    auto tabWidget = ui->tabWidget->widget(index);
+    ui->tabWidget->removeTab(index);
+    delete tabWidget;
 
     if(ui->tabWidget->count() < 2) {
         ui->tabWidget->setTabsClosable(false);
