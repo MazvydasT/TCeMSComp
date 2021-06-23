@@ -449,7 +449,7 @@
            <item>
             <widget class="QPushButton" name="pushButtonTce">
              <property name="text">
-              <string>Get TCe Extract</string>
+              <string>Load TCe data</string>
              </property>
             </widget>
            </item>
@@ -508,7 +508,7 @@
            <item>
             <widget class="QPushButton" name="pushButton">
              <property name="text">
-              <string>Get eMS Extract</string>
+              <string>Load eMS data</string>
              </property>
             </widget>
            </item>
